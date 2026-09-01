@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""captureScreen 的 MCP server —— 把工作记忆暴露给 AI agent。
+
+为什么要这一层：看板要主动打开才会用，而人不会主动打开。
+接成 MCP 之后，「上周那个 40164 报错我怎么解的」可以在 Claude Code 里
+顺口问出来 —— 工具长进日常工作流，才会被真正使用。
+
+四个 tool 刻意分开精确与模糊两类，不做成一个万能 search：
+  timeline / search_screen  读原始记录，精确、零成本、无幻觉
+  recall / read_report      走报告与向量检索，模糊、能理解语义
+混成一个会让精确查询也走语义检索，白白降低准确率。
+"""
+
+import os
+import sys
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+from mcp.server.mcpserver import MCPServer
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+import yaml  # noqa: E402
+
+mcp = MCPServer("capturescreen")
+
+
+def _config() -> dict:
+    with open(SCRIPT_DIR / "config.yaml") as f:
+        return yaml.safe_load(f)
+
+
+def _dirs() -> tuple[Path, Path]:
+    cfg = _config()
+    return (
+        SCRIPT_DIR / cfg["capture"]["output_dir"],
+        SCRIPT_DIR / cfg["report"]["output_dir"],
+    )
+
+
+def _date_range(days: int) -> list[str]:
+    today = date.today()
+    return [(today - timedelta(days=i)).isoformat() for i in range(days)]
+
+
+@mcp.tool()
+def timeline(days_ago: int = 0, hour_from: int = 0, hour_to: int = 23) -> str:
+    """看某一天用了哪些应用、什么窗口，按时间排列。
+
+    这是精确查询，直接读采集时落的元数据，不经过任何模型，没有幻觉。
+    days_ago=0 是今天，1 是昨天。适合回答「我周三下午在干什么」。
+    """
+    screenshot_dir, _ = _dirs()
+    day = (date.today() - timedelta(days=days_ago)).isoformat()
+    day_dir = screenshot_dir / day
+    if not day_dir.exists():
+        return f"{day} 没有采集记录"
+
+    rows = []
+    for meta_file in sorted(day_dir.glob("*.meta")):
+        hh = int(meta_file.stem.split("-")[0])
+        if not (hour_from <= hh <= hour_to):
+            continue
+        lines = meta_file.read_text().splitlines()
+        app = lines[0] if lines else ""
+        title = lines[1] if len(lines) > 1 else ""
+        rows.append(f"{meta_file.stem.replace('-', ':')}  {app}  |  {title}")
+
+    if not rows:
+        return f"{day} {hour_from}:00-{hour_to}:59 没有记录"
+    return f"# {day} 活动时间线（{len(rows)} 条）\n\n" + "\n".join(rows)
+
+
+@mcp.tool()
+def search_screen(keyword: str, days: int = 14, max_hits: int = 30) -> str:
+    """在屏幕文本里搜关键词，返回命中的时刻和上下文。
+
+    搜的是采集时抓的无障碍文本与 OCR 缓存，属精确匹配。
+    适合回答「上次那个报错的原文是什么」「我在哪见过这个词」。
+    """
+    screenshot_dir, _ = _dirs()
+    needle = keyword.lower()
+    hits = []
+
+    for day in _date_range(days):
+        day_dir = screenshot_dir / day
+        if not day_dir.exists():
+            continue
+        for text_file in sorted(day_dir.glob("*.txt")) + sorted(day_dir.glob("*.ocr")):
+            try:
+                content = text_file.read_text()
+            except Exception:
+                continue
+            if needle not in content.lower():
+                continue
+            for line in content.splitlines():
+                if needle in line.lower():
+                    stamp = f"{day} {text_file.stem.replace('-', ':')}"
+                    hits.append(f"[{stamp}] {line.strip()[:180]}")
+                    if len(hits) >= max_hits:
+                        return _format_hits(keyword, hits, truncated=True)
+    return _format_hits(keyword, hits, truncated=False)
+
+
+def _format_hits(keyword: str, hits: list[str], truncated: bool) -> str:
+    if not hits:
+        return f"没有找到「{keyword}」。可能是当时没采集到，或该应用不暴露文本。"
+    tail = "\n\n（已达上限，可能还有更多）" if truncated else ""
+    return f"# 「{keyword}」命中 {len(hits)} 处\n\n" + "\n".join(hits) + tail
+
+
+@mcp.tool()
+def recall(question: str, days: int = 30, top_k: int = 10) -> str:
+    """用自然语言问过去发生的事，走语义检索。
+
+    和 search_screen 的分工：那个搜字面，这个搜意思。
+    「我最近在纠结什么技术选型」这类问题只有这个答得了。
+    """
+    try:
+        import rag
+    except Exception as e:
+        return f"RAG 不可用：{e}"
+
+    cfg = _config().get("rag", {})
+    if not cfg.get("enabled"):
+        return "RAG 未启用（config.yaml 的 rag.enabled 为 false）"
+
+    try:
+        results = rag.search(question, top_k=top_k)
+    except Exception as e:
+        return f"检索失败：{e}"
+
+    if not results:
+        return f"没有检索到与「{question}」相关的记录"
+
+    blocks = []
+    for r in results:
+        meta = r.get("metadata", {}) if isinstance(r, dict) else {}
+        stamp = f"{meta.get('date', '?')} {meta.get('hour', '?')}时"
+        text = r.get("document", "") if isinstance(r, dict) else str(r)
+        blocks.append(f"[{stamp}] {text[:400]}")
+    return f"# 关于「{question}」找到 {len(blocks)} 段\n\n" + "\n\n".join(blocks)
+
+
+@mcp.tool()
+def read_report(days_ago: int = 0, hour: int | None = None) -> str:
+    """读已生成的分析报告。hour 不传则读当天所有小时的报告。"""
+    _, report_dir = _dirs()
+    day = (date.today() - timedelta(days=days_ago)).isoformat()
+    day_dir = report_dir / day
+    if not day_dir.exists():
+        return f"{day} 还没有报告"
+
+    files = sorted(day_dir.glob("*.md"))
+    if hour is not None:
+        files = [f for f in files if f.stem.startswith(f"{hour:02d}")]
+    if not files:
+        return f"{day} 没有匹配的报告"
+
+    return "\n\n---\n\n".join(f"## {f.stem}\n\n{f.read_text()}" for f in files)
+
+
+@mcp.tool()
+def capture_status() -> str:
+    """采集是否在跑、今天攒了多少数据。排查「怎么没记录」时先看这个。"""
+    screenshot_dir, report_dir = _dirs()
+    today = date.today().isoformat()
+    day_dir = screenshot_dir / today
+
+    shots = len(list(day_dir.glob("*.png"))) if day_dir.exists() else 0
+    ax = len(list(day_dir.glob("*.txt"))) if day_dir.exists() else 0
+    ocr_cached = len(list(day_dir.glob("*.ocr"))) if day_dir.exists() else 0
+    days = len([d for d in screenshot_dir.iterdir() if d.is_dir()]) if screenshot_dir.exists() else 0
+    reports = len(list(report_dir.rglob("*.md"))) if report_dir.exists() else 0
+
+    pid_file = SCRIPT_DIR / "capture.pid"
+    running = "未知"
+    if pid_file.exists():
+        try:
+            os.kill(int(pid_file.read_text().strip()), 0)
+            running = "运行中"
+        except Exception:
+            running = "已停止"
+
+    return (
+        f"采集进程：{running}\n"
+        f"今天（{today}）：{shots} 张截图、{ax} 份无障碍文本、{ocr_cached} 份 OCR 缓存\n"
+        f"累计：{days} 天数据、{reports} 份报告"
+    )
+
+
+if __name__ == "__main__":
+    mcp.run()

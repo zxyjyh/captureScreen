@@ -1,0 +1,55 @@
+#!/bin/bash
+# 查看截图采集系统状态
+DIR="$(cd "$(dirname "$0")" && pwd)"
+PID_FILE="$DIR/capture.pid"
+
+# 进程状态
+if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    PID=$(cat "$PID_FILE")
+    ELAPSED=$(ps -o etime= -p "$PID" 2>/dev/null | tr -d ' ')
+    echo "状态: 运行中 (PID=$PID, 已运行 $ELAPSED)"
+else
+    echo "状态: 未运行"
+fi
+
+# 今日截图
+TODAY=$(date +%Y-%m-%d)
+TODAY_DIR="$DIR/screenshots/$TODAY"
+if [ -d "$TODAY_DIR" ]; then
+    PNG_COUNT=$(ls "$TODAY_DIR"/*.png 2>/dev/null | wc -l | tr -d ' ')
+    LATEST=$(ls -t "$TODAY_DIR"/*.png 2>/dev/null | head -1)
+    if [ -n "$LATEST" ]; then
+        LATEST_TIME=$(basename "$LATEST" .png | tr '-' ':')
+        echo "今日截图: ${PNG_COUNT} 张 (最新: ${LATEST_TIME})"
+    fi
+else
+    echo "今日截图: 0 张"
+fi
+
+# 历史统计
+TOTAL=0
+for d in "$DIR"/screenshots/*/; do
+    [ -d "$d" ] && TOTAL=$((TOTAL + $(ls "$d"/*.png 2>/dev/null | wc -l)))
+done
+echo "累计截图: ${TOTAL} 张"
+
+# 报告
+REPORT_DIR="$DIR/reports"
+if [ -d "$REPORT_DIR" ]; then
+    REPORT_COUNT=$(find "$REPORT_DIR" -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+    LATEST_REPORT=$(find "$REPORT_DIR" -name "*.md" -exec ls -t {} + 2>/dev/null | head -1)
+    if [ -n "$LATEST_REPORT" ]; then
+        LATEST_REPORT_NAME=$(basename "$LATEST_REPORT")
+        echo "报告: ${REPORT_COUNT} 份 (最新: ${LATEST_REPORT_NAME})"
+    else
+        echo "报告: ${REPORT_COUNT} 份"
+    fi
+fi
+
+# cron 任务
+echo ""
+if crontab -l 2>/dev/null | grep -q "analyze.py"; then
+    echo "定时分析: 已注册"
+else
+    echo "定时分析: 未注册"
+fi

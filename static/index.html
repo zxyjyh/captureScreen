@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>截图采集看板</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 左列：菜单 -->
+        <div class="column" id="menu-column">
+            <h3>菜单</h3>
+            <ul id="menu-list">
+                <li class="active" data-type="">系统状态</li>
+                <li data-type="hourly">小时报告</li>
+                <li data-type="daily">日总结</li>
+                <li data-type="weekly">周报</li>
+                <li data-type="monthly">月报</li>
+            </ul>
+            <hr>
+            <div id="search-box">
+                <input type="text" id="search-input" placeholder="搜索...">
+                <button id="search-btn">搜索</button>
+            </div>
+            <hr>
+            <div id="control-area">
+                <button id="btn-start">▶ 启动截图</button>
+                <button id="btn-stop">■ 停止截图</button>
+                <button id="btn-analyze">⟳ 触发分析</button>
+            </div>
+            <hr>
+            <div id="status-area"></div>
+        </div>
+
+        <!-- 中列：时间线 -->
+        <div class="column" id="timeline-column">
+            <div id="timeline-header">
+                <h3>时间线</h3>
+                <div id="date-selector"></div>
+            </div>
+            <div id="timeline-view"></div>
+        </div>
+
+        <!-- 右列：AI 总结 -->
+        <div class="column" id="content-column">
+            <div id="content-header">
+                <h3 id="content-title">AI 总结</h3>
+            </div>
+            <div id="content-view"></div>
+            <div id="annotation-area">
+                <div id="annotation-display"></div>
+                <button id="btn-annotate">编辑标注</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 标注弹窗 -->
+    <div id="annotation-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>编辑标注</h3>
+            <label>标签 (逗号分隔)</label>
+            <input type="text" id="ann-tags">
+            <label>备注</label>
+            <input type="text" id="ann-note">
+            <label>状态</label>
+            <select id="ann-status">
+                <option value="none">未标记</option>
+                <option value="done">已完成</option>
+                <option value="todo">待跟进</option>
+            </select>
+            <div class="modal-buttons">
+                <button id="ann-save">保存</button>
+                <button id="ann-cancel">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+api:
+  model: glm-4.6v-flash
+  max_tokens: 4096
+
+capture:
+  interval_minutes: 3
+  output_dir: screenshots
+  retention_days: 7
+  # 系统空闲超过这么久就不截图 —— 锁屏、离开工位时的画面没有信息量，只是烧钱
+  idle_skip_seconds: 300
+
+privacy:
+  enabled: true
+  skip_keywords:
+    - 密码
+    - password
+    - 1Password
+    - Bitwarden
+    - LastPass
+    - 银行
+    - bank
+    - 支付宝
+    - 微信
+    - WeChat
+    - 临时会话
+    - 隐私
+    - incognito
+
+analysis:
+  # text: 本地抽文本（无障碍树 + Apple Vision OCR）后只把文字交给模型 —— 零 OCR 成本
+  # vision: 直接把图片发给多模态模型 —— 保留作兜底与效果对照
+  mode: text
+
+report:
+  output_dir: reports
+
+rag:
+  enabled: true
+  db_path: chroma_db
+  embedding_model: embedding-3
+  top_k: 20
+  max_chars_per_chunk: 300

@@ -1,0 +1,25 @@
+# 模型调用
+zhipuai>=3.0.0
+
+# 本地文本抽取 —— macOS 原生能力，零成本替代多模态 OCR
+# AppKit / Foundation: 取前台应用
+# ApplicationServices: AXUIElement 无障碍树
+# Quartz: 图像读取
+# Vision: VNRecognizeTextRequest 本地 OCR
+pyobjc-framework-Cocoa>=12.0
+pyobjc-framework-ApplicationServices>=12.0
+pyobjc-framework-Quartz>=12.0
+pyobjc-framework-Vision>=12.0
+
+# MCP 服务端 —— 供 Claude Code 等客户端查询屏幕记忆
+mcp>=2.1.0
+
+# 检索
+chromadb>=1.0.0
+
+# 基础设施
+pyyaml>=6.0
+schedule>=1.2
+pillow>=11.0
+flask
+textual
