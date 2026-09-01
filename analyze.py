@@ -28,6 +28,12 @@ _MAX_IMAGE_WIDTH = 1280
 _JPEG_QUALITY = 75
 # 少于这个字数说明无障碍树没抓到实质内容（多半只有窗口标题），该退回 OCR
 _MIN_USEFUL_CHARS = 80
+# 无障碍树字数超过这个就直接信任，不必再跑 OCR。
+# 之所以要这道门槛：光看「有没有超过 80 字」会被 UI 装饰骗过 ——
+# 实测 Ghostty 每帧稳定给 203 字，全是「Close tab」「⌘1」这类标签栏文本，
+# 终端里真正的内容一个字都拿不到，而同一张图 OCR 能出 400 字真内容。
+# 内容真的丰富的应用（Chrome 一屏 5000+ 字）远在这条线之上。
+_AX_TRUST_CHARS = 1000
 
 
 # ==================== 代码能做的事（确定性） ====================
@@ -79,7 +85,9 @@ def read_meta(filepath: Path) -> dict:
     """读取截图时保存的元数据（应用名 + 窗口标题）"""
     meta_file = filepath.with_suffix(".meta")
     if meta_file.exists():
-        lines = meta_file.read_text().strip().split("\n", 1)
+        # 用 splitlines 而不是 split("\n", 1)：meta 第三行是 pid=，
+        # 限制切分次数会把它并进标题
+        lines = meta_file.read_text().strip().splitlines()
         return {"app": lines[0] if lines else "", "title": lines[1] if len(lines) > 1 else ""}
     return {"app": "", "title": ""}
 
@@ -147,31 +155,42 @@ def format_allocation(allocation: dict[str, int]) -> str:
 def frame_text(screenshot: Path) -> tuple[str, str]:
     """取这一帧的屏幕文本，返回 (文本, 来源)。
 
-    三级来源，按「准确度 × 成本」排：
-      1. .txt   采集时抓的无障碍树 —— 结构化、准确、零成本，但只覆盖有可见窗口的应用
-      2. .ocr   Apple Vision 本地 OCR —— 全覆盖、零成本，但会把图标误读成碎字
-      3. 空     两者都没有，交给调用方决定要不要退回多模态
+    两个本地来源，都不花钱：
+      .txt   采集时抓的无障碍树 —— 结构化、准确，但有些应用（终端、
+             Electron 的部分实现）只暴露窗口边框，内容一个字不给
+      .ocr   Apple Vision 本地 OCR —— 全覆盖，但会把图标误读成碎字
 
-    OCR 结果落盘缓存：重跑分析时不必再算一遍，一张图 1.3 秒不算便宜。
+    因为 OCR 本地免费，所以不做成「无障碍树不够就退回 OCR」的单向兜底：
+    无障碍树不够丰富时两个都取，谁给的多用谁。用字数当信息量的代理指标
+    是粗糙的，但它便宜、可解释，而且实测能正确区分「203 字标签栏」和
+    「400 字真内容」这种情况。
+
+    OCR 结果落盘缓存：重跑分析时不必再算一遍，一张图 1 秒不算便宜。
     """
+    ax_text = ""
     ax_file = screenshot.with_suffix(".txt")
     if ax_file.exists():
-        text = ax_file.read_text().strip()
-        if len(text) >= _MIN_USEFUL_CHARS:
-            return text, "accessibility"
+        ax_text = ax_file.read_text().strip()
+        if len(ax_text) >= _AX_TRUST_CHARS:
+            return ax_text, "accessibility"
 
     cache = screenshot.with_suffix(".ocr")
     if cache.exists():
-        return cache.read_text().strip(), "ocr-cached"
+        ocr_text, ocr_source = cache.read_text().strip(), "ocr-cached"
+    else:
+        try:
+            ocr_text = "\n".join(ocr.recognize(str(screenshot)))
+            cache.write_text(ocr_text)
+            ocr_source = "ocr"
+        except Exception as e:
+            print(f"OCR failed on {screenshot.name}: {e}")
+            ocr_text, ocr_source = "", "none"
 
-    try:
-        text = "\n".join(ocr.recognize(str(screenshot)))
-    except Exception as e:
-        print(f"OCR failed on {screenshot.name}: {e}")
-        return "", "none"
-
-    cache.write_text(text)
-    return text, "ocr"
+    if len(ax_text) >= len(ocr_text) and len(ax_text) >= _MIN_USEFUL_CHARS:
+        return ax_text, "accessibility"
+    if len(ocr_text) >= _MIN_USEFUL_CHARS:
+        return ocr_text, ocr_source
+    return "", "none"
 
 
 def build_text_context(screenshots: list[Path]) -> tuple[str, dict[str, int]]:
@@ -355,6 +374,8 @@ def main():
     screenshot_dir = SCRIPT_DIR / config["capture"]["output_dir"]
     report_dir = SCRIPT_DIR / config["report"]["output_dir"]
     model = config["api"]["model"]
+    # 文本路径和视觉路径是两个模型：拿视觉模型跑纯文本，贵且效果更差
+    text_model = config["api"].get("text_model", model)
 
     now = datetime.now()
     date_str = args.date or now.strftime("%Y-%m-%d")
@@ -388,7 +409,7 @@ def main():
             print("Text too thin, falling back to vision")
             ai_content = ai_analyze_images(key_frames, model)
         else:
-            ai_content = ai_analyze_text(context, model)
+            ai_content = ai_analyze_text(context, text_model)
     else:
         ai_content = ai_analyze_images(key_frames, model)
 

@@ -156,7 +156,7 @@ def api_screenshots():
         app_name = ""
         title = ""
         if meta_file.exists():
-            lines = meta_file.read_text().strip().split("\n", 1)
+            lines = meta_file.read_text().strip().splitlines()
             app_name = lines[0] if lines else ""
             title = lines[1] if len(lines) > 1 else ""
         result.append({

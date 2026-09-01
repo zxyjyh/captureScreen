@@ -36,34 +36,18 @@ def load_config():
         return yaml.safe_load(f)
 
 
-def get_frontmost_window_title() -> str:
-    """获取当前前台窗口的标题（macOS）"""
-    try:
-        result = subprocess.run(
-            [
-                "osascript", "-e",
-                'tell application "System Events" to get name of first window of (first process whose frontmost is true)',
-            ],
-            capture_output=True, text=True, timeout=5,
-        )
-        return result.stdout.strip() if result.returncode == 0 else ""
-    except Exception:
-        return ""
+def frontmost() -> tuple[int, str, str]:
+    """一次拿到 (pid, 应用名, 窗口标题)，三者必然出自同一个应用。
 
+    以前应用名和窗口标题各查一次 osascript，无障碍文本又用 NSWorkspace
+    单独查第三次 —— 三次调用中间隔着一次截图，用户切个应用就会把
+    A 应用的标题配上 B 应用的正文，而且完全静默。实测出现过
+    「Finder 快速查看」那一帧配着 Chrome 页面文本。
 
-def get_frontmost_app_name() -> str:
-    """获取当前前台应用名称（macOS）"""
-    try:
-        result = subprocess.run(
-            [
-                "osascript", "-e",
-                'tell application "System Events" to get name of first process whose frontmost is true',
-            ],
-            capture_output=True, text=True, timeout=5,
-        )
-        return result.stdout.strip() if result.returncode == 0 else ""
-    except Exception:
-        return ""
+    顺带甩掉 osascript：一次 0.28 秒，NSWorkspace 是 0.0002 秒。
+    """
+    pid, name = accessibility.frontmost_app()
+    return pid, name, accessibility.frontmost_window_title(pid)
 
 
 def get_idle_seconds() -> float:
@@ -89,6 +73,34 @@ def is_sensitive_window(title: str, app_name: str, skip_keywords: list[str]) -> 
     return False
 
 
+def pick_display_index(pid: int | None = None) -> int | None:
+    """返回前台窗口所在显示器的 screencapture 序号（1 起）。判断不了就返回 None。
+
+    为什么需要：screencapture 默认只截主显示器。接了外接屏之后，
+    前台窗口可能整个在副屏上，截出来的图就和用户当时看的东西完全无关 ——
+    而且是静默的，日志一切正常，只有翻报告时才发现驴唇不对马嘴。
+    """
+    try:
+        import Quartz
+        bounds = accessibility.frontmost_window_bounds(pid)
+        if bounds is None:
+            return None
+        wx, wy, ww, wh = bounds
+        cx, cy = wx + ww / 2, wy + wh / 2
+
+        err, ids, count = Quartz.CGGetActiveDisplayList(8, None, None)
+        if err != 0 or count < 2:
+            return None  # 单屏不用挑
+        for i, did in enumerate(ids[:count], start=1):
+            b = Quartz.CGDisplayBounds(did)
+            if (b.origin.x <= cx < b.origin.x + b.size.width
+                    and b.origin.y <= cy < b.origin.y + b.size.height):
+                return i
+    except Exception:
+        return None
+    return None
+
+
 def capture_screenshot(
     output_dir: Path,
     privacy_config: dict | None = None,
@@ -101,8 +113,7 @@ def capture_screenshot(
         print(f"[{now.strftime('%H:%M:%S')}] Skipped: idle {int(idle)}s")
         return
 
-    app_name = get_frontmost_app_name()
-    title = get_frontmost_window_title()
+    pid, app_name, title = frontmost()
 
     # 隐私检查：跳过敏感窗口
     if privacy_config and privacy_config.get("enabled", False):
@@ -117,20 +128,20 @@ def capture_screenshot(
     filename = now.strftime("%H-%M-%S")
     filepath = date_dir / f"{filename}.png"
 
-    subprocess.run(
-        ["screencapture", "-x", "-t", "png", str(filepath)],
-        check=True,
-        capture_output=True,
-    )
+    cmd = ["screencapture", "-x", "-t", "png"]
+    display = pick_display_index(pid)
+    if display is not None:
+        cmd += ["-D", str(display)]
+    cmd.append(str(filepath))
+    subprocess.run(cmd, check=True, capture_output=True)
 
     # 同时保存上下文元数据（应用名+窗口标题），供后续代码分析用
     meta_file = date_dir / f"{filename}.meta"
-    meta_file.write_text(f"{app_name}\n{title}")
+    meta_file.write_text(f"{app_name}\n{title}\npid={pid}")
 
     # 无障碍文本必须在截图的同一时刻抓 —— 界面变了就再也读不到了
     ax_chars = 0
     try:
-        pid, _ = accessibility.frontmost_app()
         ax_text, _ = accessibility.capture_screen_text(pid)
         if ax_text:
             (date_dir / f"{filename}.txt").write_text(ax_text)
@@ -138,7 +149,8 @@ def capture_screenshot(
     except Exception as e:
         print(f"[{now.strftime('%H:%M:%S')}] accessibility failed: {e}")
 
-    print(f"[{now.strftime('%H:%M:%S')}] {app_name} | {title[:40]} | ax={ax_chars}字")
+    screen = f" | 屏{display}" if display is not None else ""
+    print(f"[{now.strftime('%H:%M:%S')}] {app_name} | {title[:40]} | ax={ax_chars}字{screen}")
 
 
 def cleanup_old_screenshots(output_dir: Path, report_dir: Path, retention_days: int):

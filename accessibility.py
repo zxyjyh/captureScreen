@@ -25,6 +25,9 @@ MAX_CHILDREN_PER_NODE = 120
 MAX_FRAGMENTS = 4000
 MAX_FRAGMENT_CHARS = 800
 
+# 方向隔离符：显示时不可见，落进文本里只会干扰匹配
+_BIDI_STRIP = {c: None for c in range(0x2066, 0x206A)}
+
 
 def _attr(element, name):
     err, value = AS.AXUIElementCopyAttributeValue(element, name, None)
@@ -86,6 +89,59 @@ def capture_screen_text(pid: int | None = None) -> tuple[str, int]:
         pid, _ = frontmost_app()
     fragments = extract_text(pid)
     return "\n".join(fragments), len(fragments)
+
+
+def _focused_window(pid: int):
+    """前台窗口元素。AXFocusedWindow 不是所有应用都支持（访达就返回
+    -25212 属性不支持），所以退回窗口列表第一个。"""
+    if not pid:
+        return None
+    app_element = AS.AXUIElementCreateApplication(pid)
+    window = _attr(app_element, "AXFocusedWindow")
+    if window is not None:
+        return window
+    windows = _attr(app_element, "AXWindows") or []
+    return windows[0] if windows else None
+
+
+def frontmost_window_title(pid: int | None = None) -> str:
+    """前台窗口标题。拿不到返回空串。"""
+    if pid is None:
+        pid, _ = frontmost_app()
+    window = _focused_window(pid)
+    if window is None:
+        return ""
+    title = _attr(window, "AXTitle")
+    if not isinstance(title, str):
+        return ""
+    # macOS 会在标题里插入 Unicode 方向隔离符（U+2066..U+2069），
+    # 落进文本后既碍眼又干扰后续的关键词匹配
+    return " ".join(title.translate(_BIDI_STRIP).split())
+
+
+def frontmost_window_bounds(pid: int | None = None) -> tuple[float, float, float, float] | None:
+    """前台窗口的 (x, y, 宽, 高)，全局坐标。取不到返回 None。
+
+    用途是选对显示器：接了外接屏的时候，screencapture 默认只截主屏，
+    而前台窗口可能整个在另一块屏上 —— 那样截出来的图和用户当时在看的
+    东西毫无关系。
+    """
+    if pid is None:
+        pid, _ = frontmost_app()
+    window = _focused_window(pid)
+    if window is None:
+        return None
+
+    pos, size = _attr(window, "AXPosition"), _attr(window, "AXSize")
+    if pos is None or size is None:
+        return None
+
+    # AXValue 是不透明类型，要解包成 CGPoint / CGSize
+    ok_p, point = AS.AXValueGetValue(pos, AS.kAXValueCGPointType, None)
+    ok_s, dims = AS.AXValueGetValue(size, AS.kAXValueCGSizeType, None)
+    if not (ok_p and ok_s):
+        return None
+    return (point.x, point.y, dims.width, dims.height)
 
 
 def is_trusted() -> bool:

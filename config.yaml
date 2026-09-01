@@ -1,5 +1,8 @@
 api:
+  # 视觉模型：只在无障碍树和 OCR 都抽不出东西时才走这条路
   model: glm-4.6v-flash
+  # 文本模型：主路径。用视觉模型处理纯文本既贵又不擅长
+  text_model: glm-4-flash
   max_tokens: 4096
 
 capture:
