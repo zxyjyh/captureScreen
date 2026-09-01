@@ -1,13 +1,18 @@
 #!/bin/bash
 # 查看截图采集系统状态
 DIR="$(cd "$(dirname "$0")" && pwd)"
-PID_FILE="$DIR/capture.pid"
+LABEL="com.capturescreen.agent"
 
-# 进程状态
-if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-    PID=$(cat "$PID_FILE")
-    ELAPSED=$(ps -o etime= -p "$PID" 2>/dev/null | tr -d ' ')
-    echo "状态: 运行中 (PID=$PID, 已运行 $ELAPSED)"
+# 进程状态以 launchd 为准：KeepAlive 重拉进程后 capture.pid 可能还是旧的
+AGENT_LINE=$(launchctl list 2>/dev/null | grep -E "capturescreen|$LABEL" | head -1)
+if [ -n "$AGENT_LINE" ]; then
+    PID=$(echo "$AGENT_LINE" | cut -f1)
+    if [ "$PID" != "-" ]; then
+        ELAPSED=$(ps -o etime= -p "$PID" 2>/dev/null | tr -d ' ')
+        echo "状态: 运行中 (PID=$PID, 已运行 ${ELAPSED:-?})"
+    else
+        echo "状态: 已注册但未运行 (上次退出码 $(echo "$AGENT_LINE" | cut -f2))"
+    fi
 else
     echo "状态: 未运行"
 fi
@@ -47,9 +52,15 @@ if [ -d "$REPORT_DIR" ]; then
 fi
 
 # cron 任务
+# 无障碍文本覆盖率 —— 掉到 0 通常意味着辅助功能权限失效了，
+# 而这个失效是静默的：截图照常，只是分析会退回昂贵的图片模式
+TODAY_TXT=0
+[ -d "$TODAY_DIR" ] && TODAY_TXT=$(ls "$TODAY_DIR"/*.txt 2>/dev/null | wc -l | tr -d ' ')
+echo "今日文本: ${TODAY_TXT} 份"
+
 echo ""
 if crontab -l 2>/dev/null | grep -q "analyze.py"; then
-    echo "定时分析: 已注册"
-else
-    echo "定时分析: 未注册"
+    echo "⚠ crontab 里还有 analyze.py —— 与 capture.py 内部调度重复，会分析两遍"
+    echo "  清理: bash $DIR/start.sh"
 fi
+echo "自检: $DIR/venv/bin/python $DIR/doctor.py"

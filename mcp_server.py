@@ -23,6 +23,11 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import yaml  # noqa: E402
 
+# MCP client 启动时不继承 shell 环境，凭证只能从 .env 取
+import env_file  # noqa: E402
+
+env_file.load()
+
 mcp = MCPServer("capturescreen")
 
 

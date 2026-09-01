@@ -6,9 +6,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
-from zhipuai import ZhipuAI
+from llm import ZhipuClient as ZhipuAI
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+# launchd / cron 启动时不继承 shell 环境，凭证只能从 .env 取
+import env_file  # noqa: E402
+
+env_file.load()
 
 WEEKLY_PROMPT = """以下是用户 {start_date} 到 {end_date}（一周）的每日活动总结报告。
 请综合生成一份周总结，按以下格式输出：
@@ -62,7 +67,7 @@ def load_config():
         return yaml.safe_load(f)
 
 
-def _get_client() -> ZhipuAI:
+def _get_client():
     api_key = os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", "")
     return ZhipuAI(api_key=api_key)
 

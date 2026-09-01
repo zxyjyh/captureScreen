@@ -1,54 +1,26 @@
 #!/bin/bash
-# 启动截图采集 + 注册每小时分析任务
-set -e
+# 启动采集服务
+#
+# 这里不再注册 crontab 跑 analyze.py：capture.py 主循环内部已经
+# schedule 了每小时一次分析。两边都跑就是分析两遍、账单两份。
+set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-PID_FILE="$DIR/capture.pid"
-LOG_FILE="$DIR/capture.log"
-PYTHON="$DIR/venv/bin/python"
-ENV_FILE="$DIR/.env"
+LABEL="com.capturescreen.agent"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
-# 从当前 shell 环境导出 API key 到 .env 文件（供 cron 使用）
-source ~/.zshrc 2>/dev/null || true
-if [ -n "$ZHIPU_API_KEY" ]; then
-    echo "ZHIPU_API_KEY=$ZHIPU_API_KEY" > "$ENV_FILE"
-    echo "API key saved to .env"
-elif [ -n "$ZHIPUAI_API_KEY" ]; then
-    echo "ZHIPUAI_API_KEY=$ZHIPUAI_API_KEY" > "$ENV_FILE"
-    echo "API key saved to .env"
-else
-    echo "Warning: no ZHIPU_API_KEY found in environment"
+[ -f "$PLIST" ] || { echo "未安装，先跑：bash $DIR/install.sh" >&2; exit 1; }
+
+# 清掉早期版本留下的 cron 任务，否则和 capture.py 内部调度重复
+if crontab -l 2>/dev/null | grep -qE "analyze\.py|summarize\.py"; then
+    crontab -l 2>/dev/null | grep -vE "analyze\.py|summarize\.py" | crontab -
+    echo "已移除重复的 cron 分析任务（capture.py 内部已在调度）"
 fi
 
-# 检查是否已在运行
-if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-    echo "Capture already running (PID=$(cat "$PID_FILE"))"
-    exit 1
+if launchctl list 2>/dev/null | grep -q "$LABEL"; then
+    launchctl unload "$PLIST" 2>/dev/null || true
 fi
+launchctl load "$PLIST"
 
-# 启动截图采集（后台）
-echo "Starting screen capture..."
-nohup "$PYTHON" "$DIR/capture.py" > "$LOG_FILE" 2>&1 &
-echo "Capture started (PID=$!). Log: $LOG_FILE"
-
-# 注册 crontab：用 wrapper 脚本加载 .env 环境变量
-CRON_CMD="env \$(cat $ENV_FILE 2>/dev/null | xargs) $PYTHON $DIR/analyze.py >> $DIR/analyze.log 2>&1"
-CRON_ENTRY="0 * * * * $CRON_CMD"
-
-DAILY_CMD="env \$(cat $ENV_FILE 2>/dev/null | xargs) $PYTHON $DIR/summarize.py >> $DIR/summarize.log 2>&1"
-DAILY_ENTRY="59 23 * * * $DAILY_CMD"
-
-# 检查是否已注册
-(crontab -l 2>/dev/null || true) | grep -qF "analyze.py" || {
-    (crontab -l 2>/dev/null || true; echo "$CRON_ENTRY"; echo "$DAILY_ENTRY") | crontab -
-    echo "Hourly analysis + daily summary cron jobs registered."
-}
-
-echo ""
-echo "All set! Screenshots will be captured every 5 minutes."
-echo "Hourly analysis runs automatically via cron."
-echo ""
-echo "Commands:"
-echo "  stop:    bash $DIR/stop.sh"
-echo "  status:  cat $PID_FILE 2>/dev/null && kill -0 \$(cat $PID_FILE) && echo 'running' || echo 'stopped'"
-echo "  reports: ls $DIR/reports/"
+sleep 1
+bash "$DIR/status.sh"

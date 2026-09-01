@@ -1,5 +1,6 @@
-# 模型调用
-zhipuai>=3.0.0
+# 模型调用 —— 直连智谱 REST，不用官方 SDK
+# （SDK 把 pyjwt 钉在 <2.9.0，与 mcp 要求的 >=2.10.1 冲突，见 llm.py）
+httpx>=0.27
 
 # 本地文本抽取 —— macOS 原生能力，零成本替代多模态 OCR
 # AppKit / Foundation: 取前台应用

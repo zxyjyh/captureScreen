@@ -23,6 +23,11 @@ import yaml
 import accessibility
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+# launchd / cron 启动时不继承 shell 环境，凭证只能从 .env 取
+import env_file  # noqa: E402
+
+env_file.load()
 PID_FILE = SCRIPT_DIR / "capture.pid"
 
 

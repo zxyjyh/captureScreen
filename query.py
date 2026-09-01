@@ -6,9 +6,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
-from zhipuai import ZhipuAI
+from llm import ZhipuClient as ZhipuAI
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+# launchd / cron 启动时不继承 shell 环境，凭证只能从 .env 取
+import env_file  # noqa: E402
+
+env_file.load()
 
 QUERY_SYSTEM_PROMPT = "根据检索到的历史活动记录回答用户问题，中文回复。信息不足时如实说明。"
 

@@ -19,6 +19,68 @@
 
 > 当一个功能不能让「找回 / 重建 / 合成」中的任何一项变强时，它就不该做。
 
+## 安装
+
+只支持 macOS —— 无障碍树和 Vision OCR 都是系统能力，换平台要重写这两块。
+
+```bash
+git clone https://github.com/zxyjyh/captureScreen.git
+cd captureScreen
+bash install.sh
+```
+
+脚本会建 venv、装依赖、把 API key 写进 `.env`、注册开机自启的后台服务，最后跑一遍自检。
+
+装完还要手动授两个权限。**macOS 的权限授予对象是可执行文件，不是项目目录**，所以要加的是 venv 里那个 python（`install.sh` 会把完整路径打出来）：
+
+| 权限 | 没有它会怎样 |
+|---|---|
+| 屏幕录制 | 只截到桌面壁纸，看不见任何窗口 |
+| 辅助功能 | 读不到窗口内文本，退回 OCR —— 更慢、更不准 |
+
+两个都是**静默失败**：程序照常运行，只是采不到东西。所以任何时候都可以跑自检确认：
+
+```bash
+venv/bin/python doctor.py
+```
+
+接进 Claude Code 之后，就能直接问「上周三下午我在干什么」「那个 40164 报错我后来是怎么解的」：
+
+```bash
+claude mcp add capturescreen -- "$PWD/venv/bin/python" "$PWD/mcp_server.py"
+```
+
+| 命令 | 作用 |
+|---|---|
+| `bash status.sh` | 看运行状态与今日采集量 |
+| `bash stop.sh` / `bash start.sh` | 停止 / 启动 |
+| `tail -f capture.log` | 实时日志 |
+
+### 数据在哪
+
+全部在本机，不出网 —— 唯一的出网调用是把**文本**发给模型做分析。
+
+```
+screenshots/YYYY-MM-DD/HH-MM-SS.png    截图
+                      /HH-MM-SS.txt    无障碍树抓的文本（本地免费）
+                      /HH-MM-SS.ocr    OCR 兜底结果（本地免费）
+reports/YYYY-MM-DD/HH.md               每小时的分析报告
+```
+
+`screenshots/` 和 `reports/` 都在 `.gitignore` 里，不会被误提交。
+
+## 成本
+
+原本每张截图都发给多模态模型，图片 token 比文本贵一个数量级。现在让操作系统先把字免费取出来：
+
+```
+改造前   截图 ──────────────→ 多模态模型 → 文本 + 理解
+改造后   截图 → 无障碍树/OCR → 文本 → 模型 → 理解
+                （本地，零成本）
+```
+
+配套的省法还有：相邻帧去重、系统空闲时不截图、按小时批量请求。
+
 ## 明确的非目标
 
 | 不做 | 为什么 |
@@ -39,11 +101,21 @@
 
 ## 当前状态与差距
 
-已有：定时截图（capture.py）、逐时段视觉分析（analyze.py）、日/周期汇总（summarize.py / period_summary.py）、看板（dashboard.py + static/）、RAG 检索骨架（rag.py / query.py，`rag.enabled: false` 尚未启用）。
+已有：
+
+| 环节 | 实现 |
+|---|---|
+| 采集 | `capture.py` —— 定时截图 + 同时刻抓无障碍树文本，空闲时跳过 |
+| 本地抽文本 | `accessibility.py`（无障碍树，主）/ `ocr.py`（Apple Vision，兜底） |
+| 分析 | `analyze.py` —— 默认走文本模式，`vision` 保留作对照 |
+| 汇总 | `summarize.py` / `period_summary.py` |
+| 检索 | `rag.py` / `query.py`，已启用 |
+| 访问入口 | `mcp_server.py`（5 个 tool）、`dashboard.py`（看板） |
+| 复制资产 | `pipes/` —— 每个目录一份 prompt.md |
 
 对照目标的主要差距：
 
-- **找回能力未打通** —— RAG 是关闭的，检索目前是这个项目的核心能力却还没上线。这是第一优先级。
-- **分析 prompt 偏「点评」而非「记录」** —— `analyze.py` 里的「亮点 / 可改进」板块产出说教内容，与非目标冲突，应替换为更利于检索的结构化事实抽取（实体、文件名、URL、待办、未解决的问题）。
 - **缺长周期合成** —— 有日报周报，但没有「跨月主线提取」，第 3 项能力尚不存在。
 - **报告只增不减** —— 缺少「过期报告降级为向量 + 摘要」的生命周期，长期会淹没自己。
+- **固定间隔采集** —— 每 3 分钟一次，与实际活动无关。改成事件驱动（切换应用、窗口聚焦、停止输入）能在同样信息量下少截很多张。
+- **文本模式未经长期验证** —— 已跑通，但还没和 vision 模式做过并排的产出质量对照。

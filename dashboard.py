@@ -9,6 +9,11 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+# launchd / cron 启动时不继承 shell 环境，凭证只能从 .env 取
+import env_file  # noqa: E402
+
+env_file.load()
 ANNOTATIONS_FILE = SCRIPT_DIR / "annotations.json"
 
 STATIC_DIR = str(SCRIPT_DIR / "static")

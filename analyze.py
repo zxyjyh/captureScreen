@@ -11,11 +11,16 @@ from pathlib import Path
 
 import yaml
 from PIL import Image
-from zhipuai import ZhipuAI
+from llm import ZhipuClient as ZhipuAI
 
 import ocr
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+# launchd / cron 启动时不继承 shell 环境，凭证只能从 .env 取
+import env_file  # noqa: E402
+
+env_file.load()
 
 _DIFF_THRESHOLD = 50.0
 _COMPARE_SIZE = (160, 100)

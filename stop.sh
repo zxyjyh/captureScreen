@@ -1,28 +1,17 @@
 #!/bin/bash
-# 停止截图采集 + 移除 crontab 任务
-set -e
+# 停止采集服务
+set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-PID_FILE="$DIR/capture.pid"
+LABEL="com.capturescreen.agent"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
-# 停止截图进程
-if [ -f "$PID_FILE" ]; then
-    PID="$(cat "$PID_FILE")"
-    if kill -0 "$PID" 2>/dev/null; then
-        kill "$PID"
-        echo "Capture stopped (PID=$PID)"
-    else
-        echo "Capture process not found (stale PID=$PID)"
-    fi
-    rm -f "$PID_FILE"
+# KeepAlive 会把被 kill 的进程重新拉起来，所以必须 unload 而不是 kill
+if [ -f "$PLIST" ] && launchctl list 2>/dev/null | grep -q "$LABEL"; then
+    launchctl unload "$PLIST"
+    echo "采集服务已停止（重新启动：bash $DIR/start.sh）"
 else
-    echo "No PID file found. Capture may not be running."
+    echo "采集服务未在运行"
 fi
 
-# 移除 crontab 中的任务
-if crontab -l 2>/dev/null | grep -qE "analyze.py|summarize.py"; then
-    crontab -l 2>/dev/null | grep -vE "analyze.py|summarize.py" | crontab -
-    echo "Cron jobs removed."
-fi
-
-echo "Stopped."
+rm -f "$DIR/capture.pid"

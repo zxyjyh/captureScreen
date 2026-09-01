@@ -6,9 +6,14 @@ from pathlib import Path
 
 import chromadb
 import yaml
-from zhipuai import ZhipuAI
+from llm import ZhipuClient as ZhipuAI
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+# launchd / cron 启动时不继承 shell 环境，凭证只能从 .env 取
+import env_file  # noqa: E402
+
+env_file.load()
 
 _COLLECTION_NAME = "screen_reports"
 
@@ -18,7 +23,7 @@ def load_config():
         return yaml.safe_load(f)
 
 
-def _get_client() -> ZhipuAI:
+def _get_client():
     api_key = os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", "")
     return ZhipuAI(api_key=api_key)
 
