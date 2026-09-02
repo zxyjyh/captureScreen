@@ -542,7 +542,6 @@ function initControls() {
 // --- Search ---
 function initSearch() {
     const input = document.getElementById("search-input");
-    const btn = document.getElementById("search-btn");
     const doSearch = async () => {
         const q = input.value.trim();
         if (!q) { loadTimeline(); return; }
@@ -575,7 +574,7 @@ function initSearch() {
         view.appendChild(container);
         showFullReport(results[0]);
     };
-    btn.addEventListener("click", doSearch);
+    // 回车即搜，Esc 清空 —— 一个输入框比「输入框 + 按钮」少一次点击
     input.addEventListener("keydown", e => {
         if (e.key === "Enter") doSearch();
         if (e.key === "Escape") { input.value = ""; loadTimeline(); }

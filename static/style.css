@@ -56,6 +56,15 @@ h3 {
     font-weight: 400;
 }
 
+/* 侧栏的「菜单」是这一列的标题，不是小节标签，按标题给字号 */
+#menu-column h3 {
+    font-size: 15px;
+    letter-spacing: -.1px;
+    color: var(--ink);
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
 .num, .n {
     font-family: var(--font-num);
     font-variant-numeric: tabular-nums;
@@ -95,31 +104,22 @@ h3 {
 
 hr { border: none; border-top: 1px solid var(--line-soft); margin: 0; }
 
-#search-box { display: flex; gap: 6px; }
+#search-box { display: flex; }
 
 #search-input {
     flex: 1;
-    padding: 8px 11px;
+    min-width: 0;
+    padding: 6px 10px;
     border: none;
-    border-radius: var(--r-s);
+    border-radius: var(--r-xs);
     background: var(--inset);
     color: var(--ink);
-    font-size: 13px;
+    font-size: 12.5px;
+    line-height: 18px;
 }
 
 #search-input::placeholder { color: var(--ink-3); }
 #search-input:focus { outline: 1.5px solid var(--accent-b); }
-
-#search-btn {
-    padding: 8px 12px;
-    background: var(--accent-l);
-    color: var(--accent);
-    border: none;
-    border-radius: var(--r-s);
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 500;
-}
 
 #control-area { display: flex; flex-direction: column; gap: 6px; }
 
