@@ -233,10 +233,11 @@ def api_storage():
     for name in sorted({d.name for base in (shots, reports)
                         if base.exists() for d in base.iterdir() if d.is_dir()}):
         s_dir, r_dir = shots / name, reports / name
-        img = txt = 0
+        img = txt = count = 0
         for f in (s_dir.rglob("*") if s_dir.exists() else []):
             if not f.is_file():
                 continue
+            count += 1
             if f.suffix in (".png", ".jpg"):
                 img += f.stat().st_size
             else:
@@ -245,6 +246,7 @@ def api_storage():
             "date": name,
             "images": img,
             "text": txt,
+            "file_count": count,
             "reports": purge._size(r_dir),
             "has_report": r_dir.exists(),
         })

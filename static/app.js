@@ -6,7 +6,10 @@ let todayReports = [];
 let annotations = {};
 let allDates = [];
 
-const COLORS = ["#4361ee", "#f72585", "#4cc9f0", "#7209b7", "#2d6a4f", "#e76f51"];
+// 时间分配条：同一强调色的明度梯度，不是彩虹。
+// 条目本来就按时长排序，深浅已经表达了排名；换成六个不同色相反而要
+// 先记住「哪个颜色是哪个应用」才读得懂。
+const COLORS = ["#4a5578", "#656e8d", "#808aa3", "#9ba3b8", "#b7bdd0", "#ced3e0"];
 
 // --- API helpers ---
 async function api(url, opts = {}) {
@@ -22,6 +25,9 @@ function initMenu() {
             items.forEach(i => i.classList.remove("active"));
             li.classList.add("active");
             currentType = li.dataset.type;
+            // 存储视图要整幅宽度放指标卡和表格，中列让出来
+            document.getElementById("timeline-column").style.display =
+                currentType === "storage" ? "none" : "";
             if (currentType === "storage") {
                 loadStorage();
             } else if (currentType === "" || currentType === "hourly") {
@@ -272,24 +278,24 @@ async function showReport(report) {
 
     // Section 2: 文章内容总结
     if (report.articleSummary && !report.articleSummary.includes("本时段无长文阅读")) {
-        html += `<div class="ai-section" style="border-left-color:#e76f51">
-            <h2 style="color:#e76f51">文章内容总结</h2>
+        html += `<div class="ai-section" >
+            <h2>文章内容总结</h2>
             ${renderMarkdownInline(report.articleSummary)}
         </div>`;
     }
 
     // Section 3: 关键内容
     if (report.keyContent) {
-        html += `<div class="ai-section" style="border-left-color:#4cc9f0">
-            <h2 style="color:#4cc9f0">关键内容</h2>
+        html += `<div class="ai-section" >
+            <h2>关键内容</h2>
             ${renderMarkdownInline(report.keyContent)}
         </div>`;
     }
 
     // Section 3: 意图分析
     if (report.intentAnalysis) {
-        html += `<div class="ai-section" style="border-left-color:#7209b7">
-            <h2 style="color:#7209b7">意图分析</h2>
+        html += `<div class="ai-section" >
+            <h2>意图分析</h2>
             ${renderMarkdownInline(report.intentAnalysis)}
         </div>`;
     }
@@ -304,16 +310,16 @@ async function showReport(report) {
 
     // Section 5: 亮点
     if (report.highlights) {
-        html += `<div class="ai-section" style="border-left-color:#2d6a4f">
-            <h2 style="color:#2d6a4f">亮点</h2>
+        html += `<div class="ai-section" >
+            <h2>亮点</h2>
             ${renderMarkdownInline(report.highlights)}
         </div>`;
     }
 
     // Section 6: 可改进
     if (report.improvements) {
-        html += `<div class="ai-section" style="border-left-color:#f72585">
-            <h2 style="color:#f72585">可改进</h2>
+        html += `<div class="ai-section" >
+            <h2>可改进</h2>
             ${renderMarkdownInline(report.improvements)}
         </div>`;
     }
@@ -470,10 +476,14 @@ async function loadTimeline() {
 async function loadStatus() {
     const s = await api("/api/status");
     const area = document.getElementById("status-area");
-    const statusText = s.running
-        ? `<span style="color:#2d6a4f">● 运行中</span> (PID=${s.pid})`
-        : `<span style="color:#d62828">○ 未运行</span>`;
-    area.innerHTML = `${statusText}<br>今日: ${s.today_count}张 ${s.today_latest ? "(最新 " + s.today_latest + ")" : ""}`;
+    // 状态条的颜色和圆点交给 CSS（.running / .stopped），
+    // 这里只决定文案 —— 换主题时不用回来改 JS
+    const pill = s.running
+        ? `<div class="running">采集中<span style="margin-left:auto;font-family:var(--font-num);opacity:.75;">${s.today_latest || ""}</span></div>`
+        : `<div class="stopped">未运行</div>`;
+    area.innerHTML = pill +
+        `今日 <span class="num">${s.today_count}</span> 张` +
+        (s.running ? ` · PID <span class="num">${s.pid}</span>` : "");
     document.getElementById("btn-start").style.display = s.running ? "none" : "block";
     document.getElementById("btn-stop").style.display = s.running ? "block" : "none";
 }
@@ -637,64 +647,94 @@ function fmtSize(n) {
 let storageData = null;
 
 async function loadStorage() {
-    const timeline = document.getElementById("timeline-view");
     const content = document.getElementById("content-view");
     document.getElementById("content-title").textContent = "存储管理";
     document.getElementById("date-selector").innerHTML = "";
-    timeline.innerHTML = '<div class="loading">读取中…</div>';
+    content.innerHTML = '<div class="loading">读取中…</div>';
 
     storageData = await api("/api/storage");
     const d = storageData;
 
-    let html = '<div class="storage-summary">';
-    html += `<div class="stat"><span>已用</span><b>${fmtSize(d.total)}</b></div>`;
-    html += `<div class="stat"><span>磁盘可用</span><b>${fmtSize(d.disk_free)}</b></div>`;
-    if (d.max_disk_mb) {
-        const pct = Math.min(100, d.total / (d.max_disk_mb * 1024 * 1024) * 100);
-        html += `<div class="stat"><span>上限 ${d.max_disk_mb} MB</span><b>${pct.toFixed(0)}%</b></div>`;
-        html += `<div class="bar"><i style="width:${pct}%"></i></div>`;
-    }
-    html += "</div>";
+    const images = d.rows.reduce((a, r) => a + r.images, 0);
+    const text = d.rows.reduce((a, r) => a + r.text, 0);
+    const imgPct = images + text ? (images / (images + text) * 100) : 0;
+    const capPct = d.max_disk_mb ? Math.min(100, d.total / (d.max_disk_mb * 1024 * 1024) * 100) : 0;
 
-    html += '<table class="storage-table"><thead><tr>' +
-            "<th><input type=\"checkbox\" id=\"st-all\"></th><th>日期</th>" +
+    // 概览用卡，逐条数据用表：卡片一眼看总量，表格同屏放得下更多天
+    let main = '<div class="metric-grid">';
+    main += metric("图片", images, `占总量 ${imgPct.toFixed(1)}% · 可随时删`);
+    main += metric("文本", text, "记忆本体 · 长期保留", true);
+    main += d.max_disk_mb
+        ? `<div class="metric"><div class="metric-label">磁盘上限</div>` +
+          `<div class="metric-value">${capPct.toFixed(0)}<span class="metric-unit">%</span></div>` +
+          `<div class="metric-track"><i style="width:${Math.max(capPct, 1)}%"></i></div></div>`
+        : metric("已用", d.total, "未设上限");
+    main += metric("磁盘可用", d.disk_free, d.max_disk_mb ? "超上限自动清最旧图片" : "");
+    main += "</div>";
+
+    main += '<table class="storage-table"><thead><tr>' +
+            '<th><input type="checkbox" id="st-all"></th><th>日期</th>' +
             "<th>图片</th><th>文本</th><th>报告</th></tr></thead><tbody>";
     for (const r of d.rows) {
-        html += `<tr><td><input type="checkbox" class="st-pick" value="${r.date}"></td>` +
-                `<td>${r.date}</td><td>${fmtSize(r.images)}</td>` +
+        const files = r.file_count ? `<span class="day-meta">${r.file_count} 个文件</span>` : "";
+        main += `<tr data-date="${r.date}"><td><input type="checkbox" class="st-pick" value="${r.date}"></td>` +
+                `<td>${r.date}${files}</td><td>${fmtSize(r.images)}</td>` +
                 `<td>${fmtSize(r.text)}</td>` +
                 `<td>${r.has_report ? fmtSize(r.reports) : "—"}</td></tr>`;
     }
-    html += "</tbody></table>";
-    timeline.innerHTML = html;
+    main += "</tbody></table>";
+    main += `<div class="storage-notice">图片占 <b>${imgPct.toFixed(1)}%</b>，文本占 <b>${(100 - imgPct).toFixed(1)}%</b>。` +
+            "每张图在删除前都已抽成文本 —— 删图后报告与检索照常，仅无法回看原始画面。</div>";
 
-    document.getElementById("st-all").addEventListener("change", (e) => {
-        document.querySelectorAll(".st-pick").forEach(c => c.checked = e.target.checked);
-    });
-
-    let side = "<h4>删除</h4>";
-    side += '<p class="hint">先在左边勾选日期。删除不可逆。</p>';
+    let side = '<h4 style="font-size:14px;font-weight:600;margin-bottom:4px;">删除</h4>';
+    side += '<p class="hint" id="st-picked">先在左边勾选日期。删除不可逆。</p>';
     side += '<button id="st-del-img" class="danger-soft">只删图片，保留文本</button>';
-    side += '<p class="hint">省下几乎全部空间。报告和检索照常可用，' +
-            '只是不能再翻原始画面。</p>';
+    side += '<p class="hint">省下几乎全部空间。报告和检索照常可用，只是不能再翻原始画面。</p>';
     side += '<button id="st-del-all" class="danger">全部删除</button>';
     side += '<p class="hint">截图、文本、报告、向量索引一起删。这些日期将不再可检索。</p>';
 
     if (d.backups.length) {
-        side += "<hr><h4>备份目录</h4>";
-        side += '<p class="hint">重建 git 历史时留下的，里面可能有旧截图。' +
-                '看板不会动它，要删请在终端执行：</p>';
+        side += '<hr><h4 style="font-size:14px;font-weight:600;margin:16px 0 4px;">备份目录</h4>';
+        side += '<p class="hint">重建 git 历史时留下的，里面可能有旧截图。看板不会动它，要删请在终端执行：</p>';
         for (const b of d.backups) {
-            side += `<pre class="cmd">rm -rf ${b.name}</pre>` +
-                    `<p class="hint">${fmtSize(b.size)}</p>`;
+            side += `<pre class="cmd">rm -rf ${b.name}</pre><p class="hint">${fmtSize(b.size)}</p>`;
         }
     }
-    content.innerHTML = side;
+
+    content.innerHTML =
+        '<div style="display:grid;grid-template-columns:minmax(0,1fr) 292px;gap:30px;align-items:start;">' +
+        `<div>${main}</div><div>${side}</div></div>`;
 
     const picked = () => [...document.querySelectorAll(".st-pick:checked")].map(c => c.value);
 
+    function sync() {
+        const sel = picked();
+        document.querySelectorAll(".storage-table tbody tr").forEach(tr => {
+            tr.classList.toggle("picked", sel.includes(tr.dataset.date));
+        });
+        const bytes = d.rows.filter(r => sel.includes(r.date))
+                            .reduce((a, r) => a + r.images + r.text + r.reports, 0);
+        document.getElementById("st-picked").innerHTML = sel.length
+            ? `已选 <b>${sel.length}</b> 天 · <b>${fmtSize(bytes)}</b>。删除不可逆。`
+            : "先在左边勾选日期。删除不可逆。";
+    }
+
+    document.getElementById("st-all").addEventListener("change", (e) => {
+        document.querySelectorAll(".st-pick").forEach(c => c.checked = e.target.checked);
+        sync();
+    });
+    document.querySelectorAll(".st-pick").forEach(c => c.addEventListener("change", sync));
+
     document.getElementById("st-del-img").addEventListener("click", () => doPurge(picked(), true));
     document.getElementById("st-del-all").addEventListener("click", () => doPurge(picked(), false));
+}
+
+function metric(label, bytes, note, accent) {
+    const s = fmtSize(bytes);
+    const [num, unit] = s === "—" ? ["0", "B"] : s.split(" ");
+    return `<div class="metric"><div class="metric-label">${label}</div>` +
+           `<div class="metric-value${accent ? " accent" : ""}">${num}<span class="metric-unit">${unit}</span></div>` +
+           (note ? `<div class="metric-note">${note}</div>` : "") + "</div>";
 }
 
 async function doPurge(dates, keepText) {
