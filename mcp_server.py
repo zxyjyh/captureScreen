@@ -44,17 +44,69 @@ def _dirs() -> tuple[Path, Path]:
     )
 
 
+def _hidden_note(n: int) -> str:
+    """明说挡了多少 —— 静默过滤比不过滤更糟，用的人会以为那段时间是空的。"""
+    if not n:
+        return ""
+    return (f"\n\n（另有 {n} 条来自仅本地应用，已排除。这些工具的返回值会进入对话、"
+            f"随之出网，所以默认不返回。确需查看请传 include_local_only=True，"
+            f"或直接在本机看板上看。）")
+
+
+def _local_only_apps() -> list[str]:
+    return _config().get("privacy", {}).get("local_only_apps", []) or []
+
+
+def _meta_app(meta_file: Path) -> str:
+    try:
+        lines = meta_file.read_text().strip().splitlines()
+    except OSError:
+        return ""
+    app = lines[0] if lines else ""
+    return "" if app.startswith("pid=") else app
+
+
+def _is_local_only(app: str, apps: list[str]) -> bool:
+    low = (app or "").lower()
+    return any(k.lower() in low for k in apps)
+
+
+def _blocked_stems(day_dir: Path, apps: list[str]) -> set[str]:
+    """这一天里属于「仅本地应用」的帧。
+
+    为什么工具层也要挡：privacy.local_only_apps 原本只挡住 analyze.py
+    那条出网路径，而 MCP 工具的返回值会进入 AI 客户端的对话，
+    同样是出网 —— 实测 search_screen 会把钉钉群里的内容原样吐出来。
+    四个工具「不联网」说的是它们自己不发请求，不等于结果不会被转发。
+
+    默认挡住，需要时用 include_local_only=True 显式打开 ——
+    在本机看板上看这些内容没问题，问题在于经由 AI 客户端转出去。
+    """
+    if not apps or not day_dir.exists():
+        return set()
+    return {
+        m.stem for m in day_dir.glob("*.meta")
+        if _is_local_only(_meta_app(m), apps)
+    }
+
+
 def _date_range(days: int) -> list[str]:
     today = date.today()
     return [(today - timedelta(days=i)).isoformat() for i in range(days)]
 
 
 @mcp.tool()
-def timeline(days_ago: int = 0, hour_from: int = 0, hour_to: int = 23) -> str:
+def timeline(
+    days_ago: int = 0, hour_from: int = 0, hour_to: int = 23,
+    include_local_only: bool = False,
+) -> str:
     """看某一天用了哪些应用、什么窗口，按时间排列。
 
     这是精确查询，直接读采集时落的元数据，不经过任何模型，没有幻觉。
     days_ago=0 是今天，1 是昨天。适合回答「我周三下午在干什么」。
+
+    config 里 privacy.local_only_apps 列出的应用默认排除 —— 这个工具的
+    返回值会进入对话、随之出网。确实需要时把 include_local_only 设成 True。
     """
     screenshot_dir, _ = _dirs()
     day = (date.today() - timedelta(days=days_ago)).isoformat()
@@ -62,36 +114,50 @@ def timeline(days_ago: int = 0, hour_from: int = 0, hour_to: int = 23) -> str:
     if not day_dir.exists():
         return f"{day} 没有采集记录"
 
-    rows = []
+    apps = [] if include_local_only else _local_only_apps()
+    rows, hidden = [], 0
     for meta_file in sorted(day_dir.glob("*.meta")):
         hh = int(meta_file.stem.split("-")[0])
         if not (hour_from <= hh <= hour_to):
             continue
+        app = _meta_app(meta_file)
+        if _is_local_only(app, apps):
+            hidden += 1
+            continue
         lines = meta_file.read_text().splitlines()
-        app = lines[0] if lines else ""
         title = lines[1] if len(lines) > 1 else ""
         rows.append(f"{meta_file.stem.replace('-', ':')}  {app}  |  {title}")
 
+    note = _hidden_note(hidden)
     if not rows:
-        return f"{day} {hour_from}:00-{hour_to}:59 没有记录"
-    return f"# {day} 活动时间线（{len(rows)} 条）\n\n" + "\n".join(rows)
+        return f"{day} {hour_from}:00-{hour_to}:59 没有记录{note}"
+    return f"# {day} 活动时间线（{len(rows)} 条）{note}\n\n" + "\n".join(rows)
 
 
 @mcp.tool()
-def search_screen(keyword: str, days: int = 14, max_hits: int = 30) -> str:
+def search_screen(
+    keyword: str, days: int = 14, max_hits: int = 30,
+    include_local_only: bool = False,
+) -> str:
     """在屏幕文本里搜关键词，返回命中的时刻和上下文。
 
     搜的是采集时抓的无障碍文本与 OCR 缓存，属精确匹配。
     适合回答「上次那个报错的原文是什么」「我在哪见过这个词」。
+
+    config 里 privacy.local_only_apps 列出的应用默认排除 —— 命中的原文
+    会进入对话、随之出网。确实需要时把 include_local_only 设成 True。
     """
     screenshot_dir, _ = _dirs()
     needle = keyword.lower()
+    apps = [] if include_local_only else _local_only_apps()
     hits = []
+    hidden = 0
 
     for day in _date_range(days):
         day_dir = screenshot_dir / day
         if not day_dir.exists():
             continue
+        blocked = _blocked_stems(day_dir, apps)
         for text_file in sorted(day_dir.glob("*.txt")) + sorted(day_dir.glob("*.ocr")):
             try:
                 content = text_file.read_text()
@@ -99,13 +165,16 @@ def search_screen(keyword: str, days: int = 14, max_hits: int = 30) -> str:
                 continue
             if needle not in content.lower():
                 continue
+            if text_file.stem in blocked:
+                hidden += 1
+                continue
             for line in content.splitlines():
                 if needle in line.lower():
                     stamp = f"{day} {text_file.stem.replace('-', ':')}"
                     hits.append(f"[{stamp}] {line.strip()[:180]}")
                     if len(hits) >= max_hits:
-                        return _format_hits(keyword, hits, truncated=True)
-    return _format_hits(keyword, hits, truncated=False)
+                        return _format_hits(keyword, hits, truncated=True) + _hidden_note(hidden)
+    return _format_hits(keyword, hits, truncated=False) + _hidden_note(hidden)
 
 
 def _format_hits(keyword: str, hits: list[str], truncated: bool) -> str:
