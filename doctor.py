@@ -208,6 +208,23 @@ def check_data() -> bool:
     print(f"{OK} 数据: {len(days)} 天 / {png} 张截图 / {txt} 份无障碍文本 / {reports} 份报告")
     if png and not txt:
         print(f"    {WARN} 有截图但没有文本 —— 辅助功能权限多半没生效，分析会退回图片模式（贵）")
+
+    # 图片删掉之前必须已经被抽成文本，否则内容就永久没了
+    try:
+        import capture
+        imgs = [f for f in shots.rglob("*") if f.suffix in (".png", ".jpg")]
+        lack = [f for f in imgs if capture.needs_ocr(f)]
+        img_mb = sum(f.stat().st_size for f in imgs) / 1024 / 1024
+        txt_kb = sum(f.stat().st_size for f in shots.rglob("*")
+                     if f.suffix in (".txt", ".ocr")) / 1024
+        if lack:
+            print(f"    {WARN} {len(lack)}/{len(imgs)} 张图还没抽成文本"
+                  f"（每小时后台补 {40} 张；删图前也会兜底补一次）")
+        else:
+            print(f"    {OK} 文本覆盖完整：图片 {img_mb:.0f} MB / 文本 {txt_kb:.0f} KB，"
+                  f"删图可省 {img_mb * 1024 / (img_mb * 1024 + txt_kb) * 100:.1f}%")
+    except Exception:
+        pass
     return True
 
 

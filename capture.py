@@ -355,6 +355,62 @@ def _dir_bytes(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
 
+# 无障碍文本少于这个字数就当没抽到实质内容，需要 OCR 补。
+# 和 analyze.py 的 _AX_TRUST_CHARS 是同一条线：终端类应用每帧稳定给
+# 一百多字的标签栏，字数够但全是 UI 装饰。
+_AX_TRUST_CHARS = 1000
+
+
+def needs_ocr(image: Path) -> bool:
+    """这张图是否还没被抽成足够的文本。"""
+    if image.with_suffix(".ocr").exists():
+        return False
+    ax = image.with_suffix(".txt")
+    if not ax.exists():
+        return True
+    try:
+        return len(ax.read_text().strip()) < _AX_TRUST_CHARS
+    except OSError:
+        return True
+
+
+def backfill_ocr(output_dir: Path, limit: int = 40) -> int:
+    """把还没有文本的图片补成文本，从旧到新。
+
+    为什么需要它：.ocr 原本只在分析时按需生成，而分析前要去重、
+    还封顶 30 帧 —— 被筛掉的帧从来没被 OCR 过。配上图片保留期，
+    这部分画面的内容就永久消失了。实测 162 张里有 49 张属于这种情况。
+
+    放在后台定时任务里而不是采集主循环里：OCR 一张约 1 秒，
+    塞进采集会拖慢前台响应，而它并不需要实时完成 ——
+    只要赶在图片被删之前做完就行。
+    每轮有上限，避免积压时一次占住 CPU 几分钟。
+    """
+    if not output_dir.exists():
+        return 0
+    import ocr as ocr_mod
+
+    pending = []
+    for date_dir in sorted(output_dir.iterdir()):
+        if not date_dir.is_dir():
+            continue
+        for f in sorted(date_dir.iterdir()):
+            if f.suffix in IMAGE_SUFFIXES and needs_ocr(f):
+                pending.append(f)
+
+    done = 0
+    for image in pending[:limit]:
+        try:
+            text = "\n".join(ocr_mod.recognize(str(image)))
+            image.with_suffix(".ocr").write_text(text)
+            done += 1
+        except Exception as e:
+            print(f"OCR 失败 {image.name}: {e}")
+    if done:
+        print(f"已补 OCR {done} 张（还欠 {max(0, len(pending) - done)} 张）")
+    return done
+
+
 def drop_images(output_dir: Path, keep_days: int) -> int:
     """删掉超过 keep_days 的图片，保留同名的文本。
 
@@ -367,7 +423,7 @@ def drop_images(output_dir: Path, keep_days: int) -> int:
     if not keep_days or not output_dir.exists():
         return 0
     cutoff = datetime.now() - timedelta(days=keep_days)
-    freed = 0
+    freed = rescued = 0
     for date_dir in sorted(output_dir.iterdir()):
         if not date_dir.is_dir():
             continue
@@ -376,12 +432,26 @@ def drop_images(output_dir: Path, keep_days: int) -> int:
                 continue
         except ValueError:
             continue
-        for f in date_dir.iterdir():
-            if f.suffix in IMAGE_SUFFIXES:
-                freed += f.stat().st_size
-                f.unlink()
+        for f in sorted(date_dir.iterdir()):
+            if f.suffix not in IMAGE_SUFFIXES:
+                continue
+            # 删之前最后一道保险：这张图还没被抽成文本的话，现在抽。
+            # 少了这一步，「删图片保留文本」就成了「删图片顺便丢内容」
+            if needs_ocr(f):
+                try:
+                    import ocr as ocr_mod
+                    f.with_suffix(".ocr").write_text(
+                        "\n".join(ocr_mod.recognize(str(f)))
+                    )
+                    rescued += 1
+                except Exception as e:
+                    print(f"删前 OCR 失败，保留原图 {f.name}: {e}")
+                    continue
+            freed += f.stat().st_size
+            f.unlink()
     if freed:
-        print(f"已清理旧图片，释放 {freed / 1024 / 1024:.0f} MB（文本保留）")
+        extra = f"，删前补抽 {rescued} 张" if rescued else ""
+        print(f"已清理旧图片，释放 {freed / 1024 / 1024:.0f} MB（文本保留{extra}）")
     return freed
 
 
@@ -699,6 +769,8 @@ def main():
     max_disk_mb = capture_config.get("max_disk_mb", 0)
 
     def housekeeping():
+        # 顺序有讲究：先把欠的文本补上，再删图片。反过来就是丢内容。
+        backfill_ocr(output_dir, capture_config.get("ocr_backfill_per_hour", 40))
         cleanup_old_screenshots(output_dir, report_dir, retention_days)
         drop_images(output_dir, image_days)
         enforce_disk_budget(output_dir, max_disk_mb)
