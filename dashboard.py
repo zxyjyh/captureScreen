@@ -110,7 +110,7 @@ def api_status():
     count = 0
     latest = ""
     if today_dir.exists():
-        pngs = sorted(today_dir.glob("*.png"))
+        pngs = sorted(list(today_dir.glob("*.png")) + list(today_dir.glob("*.jpg")))
         count = len(pngs)
         if pngs:
             latest = pngs[-1].stem.replace("-", ":")
@@ -147,7 +147,7 @@ def api_screenshots():
     date_dir = SCRIPT_DIR / "screenshots" / date
     if not date_dir.exists():
         return jsonify([])
-    pngs = sorted(date_dir.glob("*.png"))
+    pngs = sorted(list(date_dir.glob("*.png")) + list(date_dir.glob("*.jpg")))
     if hour:
         pngs = [p for p in pngs if p.name.startswith(f"{hour}-")]
     result = []
@@ -174,7 +174,7 @@ def api_screenshot_image():
     date = request.args.get("date", "")
     filename = request.args.get("file", "")
     full_path = SCRIPT_DIR / "screenshots" / date / filename
-    if full_path.exists() and full_path.suffix == ".png":
+    if full_path.exists() and full_path.suffix in (".png", ".jpg"):
         return send_from_directory(str(full_path.parent), filename, mimetype="image/png")
     return "Not found", 404
     return jsonify({"content": "报告不存在"}), 404

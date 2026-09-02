@@ -37,6 +37,8 @@ _AX_TRUST_CHARS = 1000
 # 灰度方差低于这个值就当作没有画面。锁屏纯黑接近 0，
 # 正常界面（哪怕是深色主题）都在几百以上
 _BLANK_VARIANCE = 15.0
+# 历史数据是 PNG，新数据是 JPEG，两种都要认
+IMAGE_SUFFIXES = {".png", ".jpg"}
 
 
 # ==================== 代码能做的事（确定性） ====================
@@ -53,14 +55,38 @@ def get_screenshots(screenshot_dir: Path, date_str: str, hour: int) -> list[Path
     hour_prefix = f"{hour:02d}-"
     return sorted(
         f for f in date_dir.iterdir()
-        if f.is_file() and f.name.startswith(hour_prefix) and f.suffix == ".png"
+        if f.is_file() and f.name.startswith(hour_prefix) and f.suffix in IMAGE_SUFFIXES
     )
 
 
+def cap_frames(screenshots: list[Path], limit: int) -> list[Path]:
+    """把一小时的帧数压到上限以内，均匀抽样。
+
+    事件驱动加多屏之后，活跃的一小时可能攒出 50+ 帧 ——
+    去重挡不住（不同屏、不同窗口本来就长得不一样），
+    但一小时的分析成本不该跟着无限涨。
+    均匀抽样而不是取前 N 张：后者会让整点后的活动完全看不见。
+    首尾必留，保住这一小时的起止。
+    """
+    if limit <= 0 or len(screenshots) <= limit:
+        return screenshots
+    step = len(screenshots) / limit
+    picked = [screenshots[int(i * step)] for i in range(limit)]
+    if picked[-1] != screenshots[-1]:
+        picked[-1] = screenshots[-1]
+    print(f"帧数封顶: {len(screenshots)} -> {len(picked)}")
+    return picked
+
+
 def display_of(screenshot: Path) -> str:
-    """这一帧属于哪块屏。副屏文件名形如 09-34-46-s2.png。"""
+    """这一帧属于哪块屏。副屏文件名形如 09-34-46-s2.jpg。
+
+    无后缀的那张是「前台窗口所在的屏」，它的实际编号会变 ——
+    所以返回 active 而不是 s1：前台在屏 2 时副屏正好叫 -s1，
+    两者会撞成同一组，去重就把不同屏的画面当成同一块屏比较了。
+    """
     parts = screenshot.stem.split("-")
-    return parts[3] if len(parts) > 3 else "s1"
+    return parts[3] if len(parts) > 3 else "active"
 
 
 def deduplicate_screenshots(screenshots: list[Path], threshold: float = _DIFF_THRESHOLD) -> list[Path]:
@@ -268,7 +294,7 @@ def build_text_context(
             continue
         # 标出副屏，否则同一时刻两块屏的内容会被当成用户先后做的两件事
         d = display_of(ss)
-        where = "" if d == "s1" else f" [副屏{d[1:]}]"
+        where = "" if d == "active" else f" [副屏{d[1:]}]"
         header = (f"[{extract_time_from_filename(ss)}]{where} "
                   f"{meta.get('app', '')} | {meta.get('title', '')}")
         blocks.append(f"{header}\n{text}")
@@ -486,8 +512,10 @@ def main():
         mark_skipped(report_dir, date_str, target_hour, "无截图")
         sys.exit(0)
 
-    # 1. 代码：去重
+    # 1. 代码：去重 + 封顶
     key_frames = deduplicate_screenshots(screenshots)
+    max_frames = config.get("analysis", {}).get("max_frames_per_hour", 30)
+    key_frames = cap_frames(key_frames, max_frames)
 
     # 2. 代码：生成时间线和统计
     timeline = build_timeline(key_frames)

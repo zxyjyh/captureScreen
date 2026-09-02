@@ -173,7 +173,7 @@ def capture_status() -> str:
     today = date.today().isoformat()
     day_dir = screenshot_dir / today
 
-    shots = len(list(day_dir.glob("*.png"))) if day_dir.exists() else 0
+    shots = (len(list(day_dir.glob("*.png"))) + len(list(day_dir.glob("*.jpg")))) if day_dir.exists() else 0
     ax = len(list(day_dir.glob("*.txt"))) if day_dir.exists() else 0
     ocr_cached = len(list(day_dir.glob("*.ocr"))) if day_dir.exists() else 0
     days = len([d for d in screenshot_dir.iterdir() if d.is_dir()]) if screenshot_dir.exists() else 0

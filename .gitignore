@@ -16,6 +16,7 @@ chroma_db/
 # ── 运行时产物 ────────────────────────────────
 capture.pid
 *.log
+*.log.*
 __pycache__/
 *.pyc
 venv/

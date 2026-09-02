@@ -6,6 +6,32 @@ api:
   max_tokens: 4096
 
 capture:
+  # event: 由事件触发 —— 切换应用、换窗口标题、打字停顿。
+  #        固定间隔与实际活动无关：盯着一篇文章看 30 分钟会拍出 10 张
+  #        一模一样的，两分钟里切 5 个应用却只拍到 1 个。
+  # interval: 固定间隔，保留作对照。
+  mode: event
+
+  # 事件模式下的节流。两次采集至少隔 min，最多隔 max。
+  min_interval_seconds: 20    # 防止 alt-tab 连按时的采集风暴
+  max_interval_seconds: 300   # 兜底：长时间阅读也要留下记录
+  poll_seconds: 1             # 轮询四个信号共 0.24 毫秒，可以放心每秒问
+  settle_seconds: 0.6         # 切换后等界面渲染完，否则拍到半张空白
+  typing_pause_seconds: 3     # 停止打字多久算「一个念头写完了」
+  pause_min_interval_seconds: 90  # 「停顿」的节流阈值，比切换高得多：
+                                  # 切换是换了上下文（强信号），同窗口内的停顿
+                                  # 只是多了几行字（弱信号）。共用 20 秒会让
+                                  # 采集频率比固定间隔还高 5 倍
+
+  # 图片存储。这张图只有两个用途：OCR 兜底、人工翻看，都不需要无损。
+  # 实测原图 1.46 MB，1600px JPEG q85 只占 5%，OCR 文字保留 98%。
+  # 双屏 8 小时：无损 PNG 460 MB/天，压缩后 23 MB/天。
+  image:
+    format: jpeg      # jpeg | png
+    max_width: 1600
+    quality: 85
+
+  # interval 模式用
   interval_minutes: 3
   output_dir: screenshots
   retention_days: 7
@@ -61,6 +87,11 @@ analysis:
   # text: 本地抽文本（无障碍树 + Apple Vision OCR）后只把文字交给模型 —— 零 OCR 成本
   # vision: 直接把图片发给多模态模型 —— 保留作兜底与效果对照
   mode: text
+
+  # 一小时最多分析多少帧。事件驱动加多屏之后，活跃的一小时能攒出 50+ 帧，
+  # 去重挡不住（不同屏、不同窗口本来就长得不一样），但分析成本不该跟着涨。
+  # 超出就均匀抽样，首尾必留。
+  max_frames_per_hour: 30
 
 report:
   output_dir: reports

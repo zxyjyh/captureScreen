@@ -76,6 +76,7 @@ from pathlib import Path
 
 import schedule
 import yaml
+from PIL import Image
 
 import accessibility
 
@@ -152,18 +153,37 @@ def screen_unavailable() -> str:
     return ""
 
 
-def get_idle_seconds() -> float:
-    """系统空闲了多久。锁屏、离开工位时截图没有任何信息量，只是烧钱。"""
+def _idle(event_type) -> float:
     try:
-        result = subprocess.run(
-            ["ioreg", "-c", "IOHIDSystem"], capture_output=True, text=True, timeout=5
-        )
-        for line in result.stdout.splitlines():
-            if "HIDIdleTime" in line:
-                return int(line.rsplit("=", 1)[1].strip()) / 1_000_000_000
+        import Quartz
+        # 1 = kCGEventSourceStateCombinedSessionState，即整个登录会话
+        return float(Quartz.CGEventSourceSecondsSinceLastEventType(1, event_type))
     except Exception:
-        pass
-    return 0.0
+        return 0.0
+
+
+def get_idle_seconds() -> float:
+    """系统空闲了多久。锁屏、离开工位时截图没有任何信息量，只是烧钱。
+
+    原来 fork 一个 ioreg 子进程读 HIDIdleTime，22 毫秒。
+    改成 Quartz 直接问，0 毫秒且读数一致（实测 4.2/4.4、2.4/2.6）——
+    事件驱动要每秒轮询，22 毫秒的开销撑不住。
+    """
+    try:
+        import Quartz
+        return _idle(Quartz.kCGAnyInputEventType)
+    except Exception:
+        return 0.0
+
+
+def keyboard_idle_seconds() -> float:
+    """离上次按键过了多久。用来识别「打字停顿」——
+    一段话写完、一条命令敲完的那一刻，屏幕上的内容最完整。"""
+    try:
+        import Quartz
+        return _idle(Quartz.kCGEventKeyDown)
+    except Exception:
+        return 0.0
 
 
 def is_sensitive_window(title: str, app_name: str, skip_keywords: list[str]) -> bool:
@@ -208,6 +228,8 @@ def capture_screenshot(
     privacy_config: dict | None = None,
     idle_skip_seconds: float = 300.0,
     capture_all: bool = True,
+    reason: str = "",
+    image_config: dict | None = None,
 ):
     now = datetime.now()
 
@@ -216,9 +238,10 @@ def capture_screenshot(
         print(f"[{now.strftime('%H:%M:%S')}] Skipped: paused ({left//60}分{left%60}秒后恢复)")
         return
 
-    reason = screen_unavailable()
-    if reason:
-        print(f"[{now.strftime('%H:%M:%S')}] Skipped: {reason}")
+    # 变量名不能叫 reason —— 那是入参（触发原因），会被覆盖成空串
+    blocked = screen_unavailable()
+    if blocked:
+        print(f"[{now.strftime('%H:%M:%S')}] Skipped: {blocked}")
         return
 
     idle = get_idle_seconds()
@@ -244,18 +267,41 @@ def capture_screenshot(
     date_dir = output_dir / now.strftime("%Y-%m-%d")
     date_dir.mkdir(parents=True, exist_ok=True)
 
+    fmt = (image_config or {}).get("format", "jpeg")
+    max_width = (image_config or {}).get("max_width", 1600)
+    quality = (image_config or {}).get("quality", 85)
+    ext = "jpg" if fmt == "jpeg" else "png"
+
     filename = now.strftime("%H-%M-%S")
-    filepath = date_dir / f"{filename}.png"
+    filepath = date_dir / f"{filename}.{ext}"
 
     displays = list_displays()
     active = pick_display_index(pid)
 
     def shoot(target: int | None, path: Path):
+        """截图并按配置压缩落盘。
+
+        全分辨率无损 PNG 一张 1.46 MB，双屏一天就是 460 MB ——
+        而这张图只有两个用途：OCR 兜底、人工翻看，都不需要无损。
+        实测 1600px JPEG q85 只占 5%，OCR 文字保留 98%（801/815 字）。
+        """
+        raw = path.with_suffix(".rawpng") if fmt == "jpeg" else path
         cmd = ["screencapture", "-x", "-t", "png"]
         if target is not None:
             cmd += ["-D", str(target)]
-        cmd.append(str(path))
+        cmd.append(str(raw))
         subprocess.run(cmd, check=True, capture_output=True)
+
+        if fmt != "jpeg":
+            return
+        try:
+            img = Image.open(raw).convert("RGB")
+            if img.size[0] > max_width:
+                h = int(img.size[1] * max_width / img.size[0])
+                img = img.resize((max_width, h), Image.LANCZOS)
+            img.save(path, "JPEG", quality=quality, optimize=True)
+        finally:
+            raw.unlink(missing_ok=True)
 
     shoot(active, filepath)
 
@@ -285,7 +331,7 @@ def capture_screenshot(
         for idx, bounds in displays:
             if idx == active:
                 continue
-            side = date_dir / f"{filename}-s{idx}.png"
+            side = date_dir / f"{filename}-s{idx}.{ext}"
             try:
                 shoot(idx, side)
             except subprocess.CalledProcessError:
@@ -296,7 +342,8 @@ def capture_screenshot(
 
     screen = f" | 屏{active}" if active is not None else ""
     more = f" +{extra}屏" if extra else ""
-    print(f"[{now.strftime('%H:%M:%S')}] {app_name} | {title[:40]} | ax={ax_chars}字{screen}{more}")
+    why = f" | {reason}" if reason else ""
+    print(f"[{now.strftime('%H:%M:%S')}] {app_name} | {title[:40]} | ax={ax_chars}字{screen}{more}{why}")
 
 
 def cleanup_old_reports(report_dir: Path, retention_days: int):
@@ -378,7 +425,8 @@ def pending_hours(
                 continue
         except ValueError:
             continue
-        hours = {f.name[:2] for f in date_dir.glob("*.png")}
+        hours = {f.name[:2] for f in date_dir.iterdir()
+                 if f.suffix in (".png", ".jpg")}
         for hh in sorted(hours):
             if not hh.isdigit():
                 continue
@@ -427,6 +475,102 @@ def run_hourly_analysis(output_dir: Path, report_dir: Path):
         analyze_hour(date_str, hour)
 
 
+def capture_reason(
+    now: float,
+    last_capture: float,
+    sig: tuple,
+    last_sig: tuple | None,
+    kb_idle: float,
+    prev_kb_idle: float,
+    cfg: dict,
+) -> str | None:
+    """该不该在此刻采集，以及为什么。返回 None 表示不采。
+
+    固定间隔的毛病是与实际活动无关：盯着一篇文章看 30 分钟，
+    拍出 10 张一模一样的；两分钟里切了 5 个应用，只拍到 1 个。
+    改成由事件触发，同样的张数能覆盖更多真正发生过的事。
+    """
+    since = now - last_capture
+
+    # 下限：切换风暴（alt-tab 连按）时不要每次都拍
+    if since < cfg["min_interval"]:
+        return None
+
+    if last_sig is not None and sig != last_sig:
+        return "切换"
+
+    # 打字停顿：一段话写完、一条命令敲完的那一刻，屏幕内容最完整。
+    # 用「上一拍还在打字、这一拍停了」的跳变，而不是「现在没在打字」——
+    # 后者在整个休息期间会一直为真。
+    #
+    # 它的节流阈值比切换高得多：切换意味着换了上下文，是强信号；
+    # 同一个窗口里的打字停顿只说明多了几行字，是弱信号。
+    # 实测在钉钉里聊天时每 30 秒就停顿一次，共用 20 秒阈值会让
+    # 采集频率比固定间隔还高 5 倍 —— 事件驱动本来是为了少拍而拍得更准。
+    pause = cfg["typing_pause"]
+    if prev_kb_idle < pause <= kb_idle and since >= cfg["pause_interval"]:
+        return "停顿"
+
+    # 上限：一直没事件也要留个记录，否则长时间阅读会整段留白
+    if since >= cfg["max_interval"]:
+        return "定时"
+
+    return None
+
+
+def event_loop(output_dir: Path, report_dir: Path, cfg: dict, capture_config: dict,
+               privacy_config: dict | None, capture_all: bool):
+    """事件驱动主循环。
+
+    每秒轮询的四个信号加起来 0.24 毫秒（应用名 0.00、窗口标题 0.04、
+    输入空闲 0.00、锁屏 0.20），全天跑也可以忽略不计。
+    无障碍全树是 70 毫秒，所以只在真正采集时才走。
+    """
+    # 从「现在」起算，而不是 0 —— 否则第一轮 since 是个天文数字，
+    # 立刻判定超上限，启动那一张刚拍完就又拍一张
+    last_capture = time.time()
+    last_sig: tuple | None = None
+    prev_kb_idle = keyboard_idle_seconds()
+    idle_skip = cfg["idle_skip"]
+
+    while True:
+        time.sleep(cfg["poll"])
+        schedule.run_pending()
+
+        if paused_seconds() or screen_unavailable():
+            last_sig = None  # 恢复后第一帧当作切换
+            continue
+        if idle_skip and get_idle_seconds() >= idle_skip:
+            continue
+
+        pid, app_name, title = frontmost()
+        sig = (app_name, title)
+        kb_idle = keyboard_idle_seconds()
+        now = time.time()
+
+        reason = capture_reason(
+            now, last_capture, sig, last_sig, kb_idle, prev_kb_idle, cfg
+        )
+        prev_kb_idle = kb_idle
+
+        if last_sig is None:
+            last_sig = sig
+            if reason is None:
+                continue
+        last_sig = sig
+
+        if reason is None:
+            continue
+
+        # 切换之后界面还在渲染，立刻截会拍到半张空白
+        if reason == "切换":
+            time.sleep(cfg["settle"])
+
+        capture_screenshot(output_dir, privacy_config, idle_skip, capture_all, reason,
+                           cfg["image"])
+        last_capture = time.time()
+
+
 def write_pid():
     PID_FILE.write_text(str(os.getpid()))
 
@@ -463,28 +607,55 @@ def main():
     signal.signal(signal.SIGINT, handle_signal)
     write_pid()
 
-    capture_screenshot(output_dir, privacy_config, idle_skip, capture_all)
+    mode = capture_config.get("mode", "event")
+
+    image_config = capture_config.get("image", {})
+    capture_screenshot(output_dir, privacy_config, idle_skip, capture_all, "启动", image_config)
     cleanup_old_screenshots(output_dir, report_dir, retention_days)
     cleanup_old_reports(report_dir, report_retention)
     run_hourly_analysis(output_dir, report_dir)
 
-    schedule.every(interval).minutes.do(
-        capture_screenshot, output_dir, privacy_config, idle_skip, capture_all
-    )
+    if mode == "interval":
+        schedule.every(interval).minutes.do(
+            capture_screenshot, output_dir, privacy_config, idle_skip, capture_all,
+            "定时", image_config
+        )
     schedule.every(1).hours.do(cleanup_old_screenshots, output_dir, report_dir, retention_days)
     schedule.every(1).hours.do(cleanup_old_reports, report_dir, report_retention)
     # 按整点触发而不是「每隔一小时」：后者从进程启动计时，重启就漂移
     schedule.every().hour.at(":05").do(run_hourly_analysis, output_dir, report_dir)
 
+    pace = (
+        f"interval={interval}min" if mode == "interval"
+        else f"event(min={capture_config.get('min_interval_seconds', 20)}s/"
+             f"max={capture_config.get('max_interval_seconds', 300)}s)"
+    )
     print(
-        f"Capture started (interval={interval}min, retention={retention_days}d, "
+        f"Capture started ({pace}, retention={retention_days}d, "
         f"idle_skip={int(idle_skip)}s, displays={'all' if capture_all else 'active'}, "
         f"accessibility={'on' if accessibility.is_trusted() else 'NO PERMISSION'}). "
         f"PID={os.getpid()}"
     )
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+
+    if mode == "interval":
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+    else:
+        event_loop(
+            output_dir, report_dir,
+            {
+                "min_interval": capture_config.get("min_interval_seconds", 20),
+                "max_interval": capture_config.get("max_interval_seconds", 300),
+                "poll": capture_config.get("poll_seconds", 1),
+                "settle": capture_config.get("settle_seconds", 0.6),
+                "typing_pause": capture_config.get("typing_pause_seconds", 3),
+                "pause_interval": capture_config.get("pause_min_interval_seconds", 90),
+                "idle_skip": idle_skip,
+                "image": image_config,
+            },
+            capture_config, privacy_config, capture_all,
+        )
 
 
 if __name__ == "__main__":
