@@ -351,23 +351,80 @@ def cleanup_old_screenshots(output_dir: Path, report_dir: Path, retention_days: 
             print(f"Skipping {date_dir} (no reports yet, keeping screenshots)")
 
 
-def run_hourly_analysis():
-    """自动分析上一个小时的截图"""
+def pending_hours(
+    output_dir: Path, report_dir: Path, lookback_days: int = 3, cap: int = 12
+) -> list[tuple[str, int]]:
+    """有截图却还没有报告的小时。
+
+    为什么不能只靠定时器：schedule.every(1).hours 是从进程启动开始计时的，
+    重启一次就归零。实测反复重启服务之后，昨天 19 点那 14 张截图
+    永远等不到分析 —— 睡眠、崩溃、升级都会留下同样的永久空洞。
+    改成每次都去对账「谁有数据但没报告」，任何原因造成的漏都能补上。
+
+    跳过当前小时（还在攒），并设上限防止积压时一次性烧掉一大笔。
+    """
     now = datetime.now()
-    prev = now - timedelta(hours=1)
+    current = (now.strftime("%Y-%m-%d"), now.hour)
+    cutoff = now - timedelta(days=lookback_days)
+    found: list[tuple[str, int]] = []
+
+    if not output_dir.exists():
+        return found
+    for date_dir in sorted(output_dir.iterdir()):
+        if not date_dir.is_dir():
+            continue
+        try:
+            if datetime.strptime(date_dir.name, "%Y-%m-%d") < cutoff:
+                continue
+        except ValueError:
+            continue
+        hours = {f.name[:2] for f in date_dir.glob("*.png")}
+        for hh in sorted(hours):
+            if not hh.isdigit():
+                continue
+            key = (date_dir.name, int(hh))
+            if key == current:
+                continue
+            day_reports = report_dir / date_dir.name
+            if (day_reports / f"{hh}.md").exists():
+                continue
+            # 分析过、但确实不该有报告（锁屏、全是仅本地应用）——
+            # 不认这个标记就会每小时重试一次，永远重试下去
+            if (day_reports / f"{hh}.skipped").exists():
+                continue
+            found.append(key)
+    return found[-cap:]
+
+
+def analyze_hour(date_str: str, hour: int) -> bool:
     python = str(SCRIPT_DIR / "venv" / "bin" / "python")
-    analyze_script = str(SCRIPT_DIR / "analyze.py")
+    stamp = datetime.now().strftime("%H:%M:%S")
     try:
         result = subprocess.run(
-            [python, analyze_script, "--date", prev.strftime("%Y-%m-%d"), "--hour", str(prev.hour)],
+            [python, str(SCRIPT_DIR / "analyze.py"), "--date", date_str, "--hour", str(hour)],
             capture_output=True, text=True, timeout=300,
         )
-        if result.returncode == 0:
-            print(f"[{now.strftime('%H:%M:%S')}] Auto analysis done for {prev.strftime('%Y-%m-%d %H')}:00")
-        else:
-            print(f"[{now.strftime('%H:%M:%S')}] Auto analysis failed: {result.stderr[:100]}")
     except Exception as e:
-        print(f"[{now.strftime('%H:%M:%S')}] Auto analysis error: {e}")
+        print(f"[{stamp}] 分析 {date_str} {hour:02d} 出错: {e}")
+        return False
+    if result.returncode == 0:
+        print(f"[{stamp}] 已分析 {date_str} {hour:02d}:00")
+        return True
+    # analyze.py 把原因打在 stdout，只看 stderr 会得到空字符串 ——
+    # 之前日志里那一串「Auto analysis failed:」后面什么都没有就是这么来的
+    detail = (result.stderr.strip() or result.stdout.strip() or "无输出").splitlines()[-1]
+    print(f"[{stamp}] 分析 {date_str} {hour:02d} 未完成: {detail[:120]}")
+    return False
+
+
+def run_hourly_analysis(output_dir: Path, report_dir: Path):
+    """把所有欠着的小时补齐，而不只是分析上一个小时。"""
+    todo = pending_hours(output_dir, report_dir)
+    if not todo:
+        return
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] 待分析 {len(todo)} 个小时")
+    for date_str, hour in todo:
+        analyze_hour(date_str, hour)
 
 
 def write_pid():
@@ -409,13 +466,15 @@ def main():
     capture_screenshot(output_dir, privacy_config, idle_skip, capture_all)
     cleanup_old_screenshots(output_dir, report_dir, retention_days)
     cleanup_old_reports(report_dir, report_retention)
+    run_hourly_analysis(output_dir, report_dir)
 
     schedule.every(interval).minutes.do(
         capture_screenshot, output_dir, privacy_config, idle_skip, capture_all
     )
     schedule.every(1).hours.do(cleanup_old_screenshots, output_dir, report_dir, retention_days)
     schedule.every(1).hours.do(cleanup_old_reports, report_dir, report_retention)
-    schedule.every(1).hours.do(run_hourly_analysis)
+    # 按整点触发而不是「每隔一小时」：后者从进程启动计时，重启就漂移
+    schedule.every().hour.at(":05").do(run_hourly_analysis, output_dir, report_dir)
 
     print(
         f"Capture started (interval={interval}min, retention={retention_days}d, "

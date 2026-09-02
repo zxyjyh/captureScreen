@@ -442,6 +442,19 @@ def assemble_report(
 
 # ==================== 主流程 ====================
 
+def mark_skipped(report_dir: Path, date_str: str, hour: int, reason: str) -> None:
+    """记下「这个小时确实不该有报告」。
+
+    不留标记的话，补齐逻辑会认为它还欠着，每小时重试一次，
+    永远重试下去 —— 锁屏那几个小时就是这种情况。
+    """
+    out = report_dir / date_str
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{hour:02d}.skipped").write_text(
+        f"{datetime.now().isoformat(timespec='seconds')} {reason}\n"
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", help="Date YYYY-MM-DD")
@@ -467,8 +480,11 @@ def main():
 
     screenshots = get_screenshots(screenshot_dir, date_str, target_hour)
     if not screenshots:
-        print(f"No screenshots for {date_str} {target_hour:02d}")
-        sys.exit(1)
+        # 退出码 0：这个小时没数据是正常的（睡觉、关机），不是失败。
+        # 用 1 会让调用方每次都记一条「失败」，真出问题时反而看不出来
+        print(f"{date_str} {target_hour:02d} 时没有截图，跳过")
+        mark_skipped(report_dir, date_str, target_hour, "无截图")
+        sys.exit(0)
 
     # 1. 代码：去重
     key_frames = deduplicate_screenshots(screenshots)
@@ -505,6 +521,7 @@ def main():
             ]
             if not visible:
                 print("屏幕无内容（锁屏或黑屏），不生成报告")
+                mark_skipped(report_dir, date_str, target_hour, "屏幕无内容")
                 sys.exit(0)
             print(f"文字太少，{len(visible)}/{len(key_frames)} 帧有画面，退回多模态")
             ai_content = ai_analyze_images(visible, model)
@@ -516,6 +533,7 @@ def main():
         ]
         if not sendable:
             print("本时段全部来自仅本地应用，不生成报告")
+            mark_skipped(report_dir, date_str, target_hour, "全部为仅本地应用")
             sys.exit(0)
         ai_content = ai_analyze_images(sendable, model)
 

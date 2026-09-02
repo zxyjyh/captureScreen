@@ -24,7 +24,8 @@ if [ -d "$TODAY_DIR" ]; then
     PNG_COUNT=$(ls "$TODAY_DIR"/*.png 2>/dev/null | wc -l | tr -d ' ')
     LATEST=$(ls -t "$TODAY_DIR"/*.png 2>/dev/null | head -1)
     if [ -n "$LATEST" ]; then
-        LATEST_TIME=$(basename "$LATEST" .png | tr '-' ':')
+        # 副屏文件名带 -s2 后缀，直接换成冒号会显示成 10:27:24:s2
+        LATEST_TIME=$(basename "$LATEST" .png | sed 's/-s[0-9]*$//' | tr '-' ':')
         echo "今日截图: ${PNG_COUNT} 张 (最新: ${LATEST_TIME})"
     fi
 else
@@ -63,4 +64,11 @@ if crontab -l 2>/dev/null | grep -q "analyze.py"; then
     echo "⚠ crontab 里还有 analyze.py —— 与 capture.py 内部调度重复，会分析两遍"
     echo "  清理: bash $DIR/start.sh"
 fi
+PENDING=$("$DIR/venv/bin/python" -c "
+import capture
+from pathlib import Path
+print(len(capture.pending_hours(Path('$DIR/screenshots'), Path('$DIR/reports'))))
+" 2>/dev/null || echo "?")
+[ "$PENDING" != "0" ] && echo "待分析: ${PENDING} 个小时（下个整点自动补）"
+
 echo "自检: $DIR/venv/bin/python $DIR/doctor.py"
