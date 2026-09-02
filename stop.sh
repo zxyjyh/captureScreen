@@ -3,7 +3,7 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-LABEL="com.capturescreen.agent"
+LABEL="com.gleaner.agent"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 # KeepAlive 会把被 kill 的进程重新拉起来，所以必须 unload 而不是 kill

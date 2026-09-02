@@ -1,10 +1,10 @@
 #!/bin/bash
-# 查看截图采集系统状态
+# 查看拾遗状态
 DIR="$(cd "$(dirname "$0")" && pwd)"
-LABEL="com.capturescreen.agent"
+LABEL="com.gleaner.agent"
 
 # 进程状态以 launchd 为准：KeepAlive 重拉进程后 capture.pid 可能还是旧的
-AGENT_LINE=$(launchctl list 2>/dev/null | grep -E "capturescreen|$LABEL" | head -1)
+AGENT_LINE=$(launchctl list 2>/dev/null | grep -E "gleaner|capturescreen|$LABEL" | head -1)
 if [ -n "$AGENT_LINE" ]; then
     PID=$(echo "$AGENT_LINE" | cut -f1)
     if [ "$PID" != "-" ]; then

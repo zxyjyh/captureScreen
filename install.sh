@@ -1,5 +1,5 @@
 #!/bin/bash
-# captureScreen 安装脚本 —— 从零到跑起来
+# 拾遗 · Gleaner 安装脚本 —— 从零到跑起来
 #
 # 这个脚本刻意不做的事：不把 API key 写进 LaunchAgent plist。
 # plist 只描述「怎么跑」，凭证只存在于 .env（已被 .gitignore）。
@@ -10,10 +10,10 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV="$DIR/venv"
 PY="$VENV/bin/python"
 ENV_FILE="$DIR/.env"
-LABEL="com.capturescreen.agent"
+LABEL="com.gleaner.agent"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 # 早期版本用过带用户名的 label，装新的之前先把旧的卸掉，避免两份同时采集
-LEGACY_LABELS=("com.xufeifeng.capturescreen")
+LEGACY_LABELS=("com.capturescreen.agent" "com.xufeifeng.capturescreen")
 
 say()  { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
@@ -174,7 +174,7 @@ $(printf '\033[1m接下来\033[0m')
     随时暂停：bash $DIR/pause.sh 30
 
   接进 Claude Code（可选，装完能直接问「我上周三在干什么」）：
-    claude mcp add capturescreen -- $PY $DIR/mcp_server.py
+    claude mcp add gleaner -- $PY $DIR/mcp_server.py
 
   常用命令：
     自检    $PY $DIR/doctor.py

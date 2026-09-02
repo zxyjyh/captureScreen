@@ -1,6 +1,12 @@
-# captureScreen
+# 拾遗 · Gleaner
 
-每 3 分钟截一次屏，用多模态模型读懂屏幕上的**内容**，沉淀成可检索、可回溯的个人工作记忆。
+> 补阙拾遗——唐代的官职，职责是记录别人漏掉的事。
+> 英文 Gleaner 出自米勒的《拾穗者》：收割之后，捡起地里剩下的麦穗。
+>
+> **你的工作日是那场收割，这个工具捡的是掉在地上的那部分。**
+
+按事件截屏，用操作系统本地能力把屏幕上的字免费取出来，
+再让模型只负责理解 —— 沉淀成可检索、可回溯的个人工作记忆。
 
 ## 项目目标
 
@@ -24,8 +30,8 @@
 只支持 macOS —— 无障碍树和 Vision OCR 都是系统能力，换平台要重写这两块。
 
 ```bash
-git clone https://github.com/zxyjyh/captureScreen.git
-cd captureScreen
+git clone https://github.com/zxyjyh/gleaner.git
+cd gleaner
 bash install.sh
 ```
 
@@ -47,7 +53,7 @@ venv/bin/python doctor.py
 接进 Claude Code 之后，就能直接问「上周三下午我在干什么」「那个 40164 报错我后来是怎么解的」：
 
 ```bash
-claude mcp add capturescreen -- "$PWD/venv/bin/python" "$PWD/mcp_server.py"
+claude mcp add gleaner -- "$PWD/venv/bin/python" "$PWD/mcp_server.py"
 ```
 
 | 命令 | 作用 |

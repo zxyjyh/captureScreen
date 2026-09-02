@@ -183,7 +183,7 @@ def check_agent() -> bool:
         out = subprocess.run(["launchctl", "list"], capture_output=True, text=True, timeout=10).stdout
     except Exception:
         return False
-    line = next((l for l in out.splitlines() if "capturescreen" in l.lower()), None)
+    line = next((l for l in out.splitlines() if "gleaner" in l.lower() or "capturescreen" in l.lower()), None)
     if not line:
         print(f"{WARN} 采集服务未加载 —— 运行 bash start.sh 启动")
         return False
@@ -229,7 +229,7 @@ def check_data() -> bool:
 
 
 def main() -> int:
-    print(f"captureScreen 自检\n路径: {SCRIPT_DIR}\nPython: {sys.executable}\n")
+    print(f"拾遗 · Gleaner 自检\n路径: {SCRIPT_DIR}\nPython: {sys.executable}\n")
     results = [
         check_deps(), check_screen_recording(), check_accessibility(),
         check_text_extraction(), check_api_key(), check_privacy(),

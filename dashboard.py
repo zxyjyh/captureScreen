@@ -1,4 +1,4 @@
-"""Web 看板 - 截图采集系统"""
+"""拾遗的看板"""
 
 import json
 import os

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-LABEL="com.capturescreen.agent"
+LABEL="com.gleaner.agent"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 [ -f "$PLIST" ] || { echo "未安装，先跑：bash $DIR/install.sh" >&2; exit 1; }
