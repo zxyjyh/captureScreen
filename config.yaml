@@ -11,6 +11,10 @@ capture:
   retention_days: 7
   # 系统空闲超过这么久就不截图 —— 锁屏、离开工位时的画面没有信息量，只是烧钱
   idle_skip_seconds: 300
+  # all: 每块显示器都拍。前台应用只有一个，但副屏上往往开着另一个应用，
+  #      那块屏上的东西同样是「当时看得见的」——只拍主屏会整块丢掉。
+  # active: 只拍前台窗口所在那块屏，省一半存储。
+  displays: all
 
 privacy:
   enabled: true

@@ -1,3 +1,60 @@
+def list_displays() -> list[tuple[int, object]]:
+    """所有活动显示器，返回 [(screencapture 的 -D 序号, 边界), ...]。"""
+    try:
+        import Quartz
+        err, ids, count = Quartz.CGGetActiveDisplayList(8, None, None)
+        if err != 0:
+            return []
+        return [(i, Quartz.CGDisplayBounds(d)) for i, d in enumerate(ids[:count], start=1)]
+    except Exception:
+        return []
+
+
+def _contains(bounds, x: float, y: float) -> bool:
+    return (bounds.origin.x <= x < bounds.origin.x + bounds.size.width
+            and bounds.origin.y <= y < bounds.origin.y + bounds.size.height)
+
+
+def pick_display_index(pid: int | None = None) -> int | None:
+    """前台窗口落在哪块显示器上（-D 序号，1 起）。判断不了返回 None。"""
+    displays = list_displays()
+    if len(displays) < 2:
+        return None  # 单屏不用挑
+    bounds = accessibility.frontmost_window_bounds(pid)
+    if bounds is None:
+        return None
+    wx, wy, ww, wh = bounds
+    cx, cy = wx + ww / 2, wy + wh / 2
+    for idx, b in displays:
+        if _contains(b, cx, cy):
+            return idx
+    return None
+
+
+def app_on_display(bounds) -> str:
+    """这块显示器上最上层窗口属于哪个应用。
+
+    副屏上的内容不归前台应用管 —— 前台应用只有一个，而副屏往往开着
+    另一个应用。NSWorkspace 回答不了「那块屏上是什么」，
+    CGWindowList 按窗口位置筛选可以。
+    """
+    try:
+        import Quartz
+        opts = (Quartz.kCGWindowListOptionOnScreenOnly
+                | Quartz.kCGWindowListExcludeDesktopElements)
+        for w in Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID) or []:
+            if w.get("kCGWindowLayer") != 0:
+                continue
+            r = w.get("kCGWindowBounds") or {}
+            cx = r.get("X", 0) + r.get("Width", 0) / 2
+            cy = r.get("Y", 0) + r.get("Height", 0) / 2
+            if _contains(bounds, cx, cy):
+                return w.get("kCGWindowOwnerName") or ""
+    except Exception:
+        pass
+    return ""
+
+
 """截图采集：定时截屏，并在同一时刻抓下无障碍树文本。
 
 为什么截图的同时要抓无障碍文本：无障碍树只能读「此刻」的界面，
@@ -48,6 +105,31 @@ def frontmost() -> tuple[int, str, str]:
     """
     pid, name = accessibility.frontmost_app()
     return pid, name, accessibility.frontmost_window_title(pid)
+
+
+def screen_unavailable() -> str:
+    """屏幕上没有可记录的东西时，返回原因；可以正常采集时返回空串。
+
+    锁屏和显示器休眠时截出来的是纯黑图，无障碍树也只剩十来个字。
+    这类帧不但没信息量，还会主动造成损害：文本太薄会触发多模态兜底，
+    于是模型对着黑屏编出「用户可能处于任务准备阶段」这种内容，
+    再被索引进检索库污染后续查询。实测一夜攒了 9 张锁屏截图和
+    一份完全虚构的报告。
+
+    空闲时长挡不住这种情况 —— 机器锁屏后会周期性唤醒，
+    HIDIdleTime 跟着归零。
+    """
+    try:
+        import Quartz
+        # 这个键只在锁屏时存在，解锁状态下取不到
+        session = Quartz.CGSessionCopyCurrentDictionary()
+        if session and session.get("CGSSessionScreenIsLocked"):
+            return "screen locked"
+        if Quartz.CGDisplayIsAsleep(Quartz.CGMainDisplayID()):
+            return "display asleep"
+    except Exception:
+        pass
+    return ""
 
 
 def get_idle_seconds() -> float:
@@ -105,8 +187,14 @@ def capture_screenshot(
     output_dir: Path,
     privacy_config: dict | None = None,
     idle_skip_seconds: float = 300.0,
+    capture_all: bool = True,
 ):
     now = datetime.now()
+
+    reason = screen_unavailable()
+    if reason:
+        print(f"[{now.strftime('%H:%M:%S')}] Skipped: {reason}")
+        return
 
     idle = get_idle_seconds()
     if idle_skip_seconds and idle >= idle_skip_seconds:
@@ -114,6 +202,12 @@ def capture_screenshot(
         return
 
     pid, app_name, title = frontmost()
+
+    # 兜底：不同 macOS 版本上锁屏信号不总是可靠，但前台是 loginwindow
+    # 就一定是锁屏界面
+    if app_name == "loginwindow":
+        print(f"[{now.strftime('%H:%M:%S')}] Skipped: login window")
+        return
 
     # 隐私检查：跳过敏感窗口
     if privacy_config and privacy_config.get("enabled", False):
@@ -128,16 +222,17 @@ def capture_screenshot(
     filename = now.strftime("%H-%M-%S")
     filepath = date_dir / f"{filename}.png"
 
-    cmd = ["screencapture", "-x", "-t", "png"]
-    display = pick_display_index(pid)
-    if display is not None:
-        cmd += ["-D", str(display)]
-    cmd.append(str(filepath))
-    subprocess.run(cmd, check=True, capture_output=True)
+    displays = list_displays()
+    active = pick_display_index(pid)
 
-    # 同时保存上下文元数据（应用名+窗口标题），供后续代码分析用
-    meta_file = date_dir / f"{filename}.meta"
-    meta_file.write_text(f"{app_name}\n{title}\npid={pid}")
+    def shoot(target: int | None, path: Path):
+        cmd = ["screencapture", "-x", "-t", "png"]
+        if target is not None:
+            cmd += ["-D", str(target)]
+        cmd.append(str(path))
+        subprocess.run(cmd, check=True, capture_output=True)
+
+    shoot(active, filepath)
 
     # 无障碍文本必须在截图的同一时刻抓 —— 界面变了就再也读不到了
     ax_chars = 0
@@ -149,8 +244,34 @@ def capture_screenshot(
     except Exception as e:
         print(f"[{now.strftime('%H:%M:%S')}] accessibility failed: {e}")
 
-    screen = f" | 屏{display}" if display is not None else ""
-    print(f"[{now.strftime('%H:%M:%S')}] {app_name} | {title[:40]} | ax={ax_chars}字{screen}")
+    # 元数据要在无障碍抽取之后写：前台应用可能最小化或只剩托盘图标，
+    # 这时选屏拿不到窗口位置、退回主屏，拍到的其实是别的应用。
+    # 照直写应用名就是撒谎，下游会把 A 的名字配上 B 的画面 ——
+    # 实测出现过「钉钉」那一帧的正文全是 VS Code。
+    readable = bool(title) or ax_chars > 0 or active is not None
+    label = app_name if readable else f"{app_name}(无可读窗口)"
+    (date_dir / f"{filename}.meta").write_text(f"{label}\n{title}\npid={pid}")
+
+    # 副屏：前台应用只有一个，但副屏上往往开着另一个应用，
+    # 那块屏上的内容同样是「用户当时看得见的东西」。
+    # 无障碍树只覆盖前台应用，副屏的文字只能靠分析时的 OCR。
+    extra = 0
+    if capture_all and len(displays) > 1:
+        for idx, bounds in displays:
+            if idx == active:
+                continue
+            side = date_dir / f"{filename}-s{idx}.png"
+            try:
+                shoot(idx, side)
+            except subprocess.CalledProcessError:
+                continue
+            side_app = app_on_display(bounds)
+            side.with_suffix(".meta").write_text(f"{side_app}\n\npid=")
+            extra += 1
+
+    screen = f" | 屏{active}" if active is not None else ""
+    more = f" +{extra}屏" if extra else ""
+    print(f"[{now.strftime('%H:%M:%S')}] {app_name} | {title[:40]} | ax={ax_chars}字{screen}{more}")
 
 
 def cleanup_old_screenshots(output_dir: Path, report_dir: Path, retention_days: int):
@@ -222,6 +343,7 @@ def main():
     report_dir = SCRIPT_DIR / config["report"]["output_dir"]
     privacy_config = config.get("privacy")
     idle_skip = float(capture_config.get("idle_skip_seconds", 300))
+    capture_all = capture_config.get("displays", "all") == "all"
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -229,16 +351,19 @@ def main():
     signal.signal(signal.SIGINT, handle_signal)
     write_pid()
 
-    capture_screenshot(output_dir, privacy_config, idle_skip)
+    capture_screenshot(output_dir, privacy_config, idle_skip, capture_all)
     cleanup_old_screenshots(output_dir, report_dir, retention_days)
 
-    schedule.every(interval).minutes.do(capture_screenshot, output_dir, privacy_config, idle_skip)
+    schedule.every(interval).minutes.do(
+        capture_screenshot, output_dir, privacy_config, idle_skip, capture_all
+    )
     schedule.every(1).hours.do(cleanup_old_screenshots, output_dir, report_dir, retention_days)
     schedule.every(1).hours.do(run_hourly_analysis)
 
     print(
         f"Capture started (interval={interval}min, retention={retention_days}d, "
-        f"idle_skip={int(idle_skip)}s, accessibility={'on' if accessibility.is_trusted() else 'NO PERMISSION'}). "
+        f"idle_skip={int(idle_skip)}s, displays={'all' if capture_all else 'active'}, "
+        f"accessibility={'on' if accessibility.is_trusted() else 'NO PERMISSION'}). "
         f"PID={os.getpid()}"
     )
     while True:

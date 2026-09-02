@@ -34,6 +34,9 @@ _MIN_USEFUL_CHARS = 80
 # 终端里真正的内容一个字都拿不到，而同一张图 OCR 能出 400 字真内容。
 # 内容真的丰富的应用（Chrome 一屏 5000+ 字）远在这条线之上。
 _AX_TRUST_CHARS = 1000
+# 灰度方差低于这个值就当作没有画面。锁屏纯黑接近 0，
+# 正常界面（哪怕是深色主题）都在几百以上
+_BLANK_VARIANCE = 15.0
 
 
 # ==================== 代码能做的事（确定性） ====================
@@ -54,7 +57,31 @@ def get_screenshots(screenshot_dir: Path, date_str: str, hour: int) -> list[Path
     )
 
 
+def display_of(screenshot: Path) -> str:
+    """这一帧属于哪块屏。副屏文件名形如 09-34-46-s2.png。"""
+    parts = screenshot.stem.split("-")
+    return parts[3] if len(parts) > 3 else "s1"
+
+
 def deduplicate_screenshots(screenshots: list[Path], threshold: float = _DIFF_THRESHOLD) -> list[Path]:
+    """按屏分组去重。
+
+    多屏采集下相邻两帧常来自不同显示器，画面必然不同 ——
+    不分组的话去重完全失效，一张都删不掉。
+    """
+    groups: dict[str, list[Path]] = {}
+    for ss in screenshots:
+        groups.setdefault(display_of(ss), []).append(ss)
+    if len(groups) > 1:
+        kept = [f for g in groups.values() for f in _dedup_one(g, threshold)]
+        print(f"Dedup: {len(screenshots)} -> {len(kept)} ({len(groups)} 块屏分别去重)")
+        return sorted(kept)
+    kept = _dedup_one(screenshots, threshold)
+    print(f"Dedup: {len(screenshots)} -> {len(kept)}")
+    return kept
+
+
+def _dedup_one(screenshots: list[Path], threshold: float) -> list[Path]:
     if len(screenshots) <= 2:
         return screenshots
     kept = [screenshots[0]]
@@ -66,7 +93,6 @@ def deduplicate_screenshots(screenshots: list[Path], threshold: float = _DIFF_TH
             prev_img = curr_img
     if kept[-1] != screenshots[-1]:
         kept.append(screenshots[-1])
-    print(f"Dedup: {len(screenshots)} -> {len(kept)}")
     return kept
 
 
@@ -193,6 +219,25 @@ def frame_text(screenshot: Path) -> tuple[str, str]:
     return "", "none"
 
 
+def looks_blank(screenshot: Path) -> bool:
+    """这一帧是不是几乎没有画面（锁屏、黑屏、纯色）。
+
+    用途是区分两种「抽不到文字」：屏幕上本来就什么都没有，
+    还是有画面但都是图（视频、设计稿）。前者该直接跳过，
+    后者才值得退回多模态。
+    分不清的话会把黑屏送进视觉模型，模型就对着黑屏编内容 ——
+    实测编出过「用户可能处于任务准备阶段」这种整段虚构。
+    """
+    try:
+        img = Image.open(screenshot).convert("L").resize((64, 40))
+        px = list(img.getdata())
+        mean = sum(px) / len(px)
+        var = sum((v - mean) ** 2 for v in px) / len(px)
+        return var < _BLANK_VARIANCE
+    except Exception:
+        return False
+
+
 def build_text_context(screenshots: list[Path]) -> tuple[str, dict[str, int]]:
     """把关键帧拼成给模型的文本上下文，并统计各来源占比。"""
     blocks: list[str] = []
@@ -203,9 +248,22 @@ def build_text_context(screenshots: list[Path]) -> tuple[str, dict[str, int]]:
         if not text:
             continue
         meta = read_meta(ss)
-        header = f"[{extract_time_from_filename(ss)}] {meta.get('app', '')} | {meta.get('title', '')}"
+        # 标出副屏，否则同一时刻两块屏的内容会被当成用户先后做的两件事
+        d = display_of(ss)
+        where = "" if d == "s1" else f" [副屏{d[1:]}]"
+        header = (f"[{extract_time_from_filename(ss)}]{where} "
+                  f"{meta.get('app', '')} | {meta.get('title', '')}")
         blocks.append(f"{header}\n{text}")
     return "\n\n---\n\n".join(blocks), stats
+
+
+def allowed_times(screenshots: list[Path]) -> str:
+    """把这批帧的时间显式列出来。
+
+    只在 prompt 里讲「不要用屏幕上的时间」不够 —— 模型照样会把
+    聊天消息的发送时间写成步骤时间。给一份白名单更管用。
+    """
+    return "、".join(extract_time_from_filename(s) for s in screenshots)
 
 
 AI_TEXT_PROMPT = """你是一个个人工作记录员。下面是用户这段时间的屏幕文本，
@@ -220,6 +278,12 @@ AI_TEXT_PROMPT = """你是一个个人工作记录员。下面是用户这段时
 
 按时间还原用户做了什么，每步写明：时间、应用、具体在做什么。
 步骤之间如果有因果关系（因为遇到 X 所以去查 Y），写出来。
+
+**时间只能从下面这份清单里选**，一个都不许多出来：
+{allowed}
+
+屏幕正文里出现的时间（聊天消息的发送时间、日志时间戳、日历上的时间）
+是被观察到的内容，不是用户在做这件事的时间，绝不能拿来当步骤时间。
 
 ## 关键事实
 
@@ -244,63 +308,42 @@ AI_TEXT_PROMPT = """你是一个个人工作记录员。下面是用户这段时
 """
 
 
-AI_PROMPT = """你是一个个人活动分析师。分析用户这组屏幕截图，还原用户这段时间的完整活动流和心理轨迹。
+AI_PROMPT = """你是一个个人工作记录员。下面是用户这段时间的屏幕截图，按时间顺序排列。
 
-**重要：文字内容处理规则**
-如果截图中包含大量文字（文章、文档、网页正文），你需要：
-1. 逐张截图提取文字内容
-2. 比较多张截图的文字，判断是否是同一篇文章/文档的不同部分（滚动产生的）
-3. 如果是同一篇文章的不同部分，把所有部分拼接成完整内容，然后总结全文核心观点
-4. 如果是不同文章/文档，分别总结各自内容
-5. 去除重复内容，只保留独特的文字片段
+这条路径只在无障碍树和 OCR 都抽不到文字时才会走到，说明屏幕上主要是图像内容。
 
 按以下结构输出：
 
 ## 活动流
 
-按步骤还原用户的完整操作路径，每一步写清楚具体做了什么：
+按时间还原用户做了什么，每步写明：时间（从截图顺序推断）、应用、具体在做什么。
+步骤之间如果有因果关系，写出来。
 
-**第一步**：[时间] [应用] 具体操作内容
-**第二步**：[时间] [应用] 具体操作内容
-...
+**截图里出现的时间（聊天消息时间、日志时间戳）是被观察到的内容，
+不是用户在做这件事的时间，不要拿来当步骤时间。**
+
+## 关键事实
+
+抽取可被检索的具体信息，有就写，没有就跳过该项：
+
+- **实体**：涉及的项目名、仓库名、产品名、人名、公司名
+- **文件与路径**：出现过的文件名、目录路径
+- **链接**：出现过的 URL 或站点
+- **报错与问题**：具体的错误码、错误信息、卡住的地方
+- **决定与结论**：做了什么判断、选了哪个方案
+- **待办**：明确提到但还没做完的事
+
+## 阅读与信息摄入
+
+如果有文章、文档、网页正文：列出标题与来源，总结核心观点。
+同一篇内容滚动产生的多张，拼成一篇再总结，不要重复。
 
 要求：
-- 每一步必须写明时间（从截图文件名推断）、使用的应用、具体操作
-- 步骤之间说明因果关系（比如"因为第一步遇到了XX问题，所以第二步去查了XX文档"）
-- 如果用户在同一个应用内做了多件不同的事，拆成多个步骤
-- 不要遗漏任何截图中的活动
-
-## 文章内容总结
-
-如果截图中包含文章或长文文档：
-- 列出每篇文章/文档的标题和来源
-- 拼接同一篇文章在多张截图中的不同部分，形成完整内容
-- 用 3-5 个要点总结每篇文章的核心观点
-- 标注哪些截图属于同一篇文章（如"截图1-3是同一篇文章的上中下部分"）
-
-如果没有文章内容，写"本时段无长文阅读"。
-
-## 关键内容
-
-提取截图中看到的重要信息：
-- 代码文件名、函数名、代码片段
-- 对话/消息的要点
-- 关键数据、参数、配置信息
-
-## 意图分析
-
-推测用户当时的心态和意图：
-- 用户在追求什么目标？
-- 当前的进展如何？卡住了还是顺利推进？
-- 有没有走偏或者被打断？
-
-## 亮点
-
-这段时间做得好的地方、有价值的发现、学到的新知识。
-
-## 可改进
-
-这段时间可以优化的地方，比如注意力分散、效率低下的时段、不必要的切换。"""
+- **只写截图里真实看得见的内容。看不清就说看不清，不要推测、不要补全、不要发挥**
+- 不做效率点评、不给改进建议、不做时间统计、不推测用户心态 —— 这些没有检索价值，
+  且极易变成虚构
+- 具体优先于概括：写「修 40164 IP 白名单报错」，不写「处理了技术问题」
+"""
 
 
 def encode_image(filepath: Path) -> str:
@@ -331,7 +374,7 @@ def ai_analyze_images(screenshots: list[Path], model: str) -> str:
 
 # ==================== 代码组装最终报告 ====================
 
-def ai_analyze_text(context: str, model: str) -> str:
+def ai_analyze_text(context: str, model: str, times: str = "") -> str:
     """把本地抽好的文本交给模型理解。
 
     相对 ai_analyze_images 的意义：模型不再负责「把屏幕上的字读出来」，
@@ -340,9 +383,10 @@ def ai_analyze_text(context: str, model: str) -> str:
     """
     api_key = os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", "")
     client = ZhipuAI(api_key=api_key)
+    prompt = AI_TEXT_PROMPT.format(allowed=times or "（以每块开头的时间为准）")
     response = client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": f"{AI_TEXT_PROMPT}\n\n{context}"}],
+        messages=[{"role": "user", "content": f"{prompt}\n\n{context}"}],
     )
     return response.choices[0].message.content
 
@@ -405,11 +449,17 @@ def main():
     if analysis_mode == "text":
         context, sources = build_text_context(key_frames)
         print(f"Text context: {len(context)} chars, sources={sources}")
-        if len(context) < _MIN_USEFUL_CHARS:
-            print("Text too thin, falling back to vision")
-            ai_content = ai_analyze_images(key_frames, model)
+        if len(context) >= _MIN_USEFUL_CHARS:
+            ai_content = ai_analyze_text(context, text_model, allowed_times(key_frames))
         else:
-            ai_content = ai_analyze_text(context, text_model)
+            # 抽不到文字有两种：屏幕上本来就没东西（锁屏、黑屏），
+            # 或者有画面但都是图。只有后者值得花钱走多模态。
+            visible = [f for f in key_frames if not looks_blank(f)]
+            if not visible:
+                print("屏幕无内容（锁屏或黑屏），不生成报告")
+                sys.exit(0)
+            print(f"文字太少，{len(visible)}/{len(key_frames)} 帧有画面，退回多模态")
+            ai_content = ai_analyze_images(visible, model)
     else:
         ai_content = ai_analyze_images(key_frames, model)
 
