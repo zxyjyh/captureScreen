@@ -327,19 +327,85 @@ def api_stop():
     return jsonify({"ok": True})
 
 
+def _run(args: list[str], timeout: int = 900):
+    """跑一个子进程脚本，把 stdout 也带回来 ——
+    analyze.py 把「这个小时没内容」这类原因打在 stdout，只看 stderr 会得到空串。"""
+    r = subprocess.run(
+        [str(SCRIPT_DIR / "venv/bin/python")] + args,
+        capture_output=True, text=True, timeout=timeout, cwd=str(SCRIPT_DIR),
+    )
+    tail = (r.stdout.strip() or r.stderr.strip() or "").splitlines()
+    return r.returncode, (tail[-1][:200] if tail else "")
+
+
 @app.route("/api/control/analyze", methods=["POST"])
 def api_analyze():
+    """按需分析某一个小时。
+
+    小时报告不再自动生成 —— 那是每小时一次模型调用，而绝大多数小时
+    根本没人会看。要看哪个小时就点哪个。
+    """
+    data = request.get_json(silent=True) or {}
     now = datetime.now()
-    prev = now - timedelta(hours=1)
-    result = subprocess.run(
-        [str(SCRIPT_DIR / "venv/bin/python"), str(SCRIPT_DIR / "analyze.py"),
-         "--date", prev.strftime("%Y-%m-%d"), "--hour", str(prev.hour)],
-        capture_output=True, text=True, timeout=300,
-    )
-    if result.returncode == 0:
-        return jsonify({"ok": True, "message": f"分析完成: {prev.strftime('%Y-%m-%d %H')}:00"})
+    date_str = data.get("date") or now.strftime("%Y-%m-%d")
+    hour = data.get("hour")
+    if hour is None:
+        prev = now - timedelta(hours=1)
+        date_str, hour = prev.strftime("%Y-%m-%d"), prev.hour
+
+    code, msg = _run([str(SCRIPT_DIR / "analyze.py"), "--date", date_str, "--hour", str(int(hour))])
+    if code != 0:
+        return jsonify({"ok": False, "message": msg or "分析失败"}), 500
+
+    made = (SCRIPT_DIR / load_config()["report"]["output_dir"] / date_str / f"{int(hour):02d}.md").exists()
+    return jsonify({
+        "ok": True,
+        "generated": made,
+        "message": f"{date_str} {int(hour):02d}:00 分析完成" if made else (msg or "该时段无内容，未生成报告"),
+    })
+
+
+@app.route("/api/control/summarize", methods=["POST"])
+def api_summarize():
+    """按需生成日 / 周 / 月总结。日总结另有每天一次的自动任务，这里是手动补跑。"""
+    data = request.get_json(silent=True) or {}
+    kind = data.get("kind", "daily")
+    today = datetime.now()
+
+    if kind == "daily":
+        date_str = data.get("date") or today.strftime("%Y-%m-%d")
+        code, msg = _run([str(SCRIPT_DIR / "summarize.py"), "--date", date_str])
+        label = f"{date_str} 日总结"
+    elif kind == "weekly":
+        end = datetime.strptime(data["end"], "%Y-%m-%d") if data.get("end") else today
+        start = end - timedelta(days=6)
+        code, msg = _run([str(SCRIPT_DIR / "period_summary.py"), "--weekly",
+                          start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")])
+        label = f"{start:%m-%d} 至 {end:%m-%d} 周报"
+    elif kind == "monthly":
+        year = int(data.get("year") or today.year)
+        month = int(data.get("month") or today.month)
+        code, msg = _run([str(SCRIPT_DIR / "period_summary.py"), "--monthly", str(year), str(month)])
+        label = f"{year}-{month:02d} 月报"
     else:
-        return jsonify({"ok": False, "message": result.stderr[-200:] if result.stderr else "分析失败"}), 500
+        return jsonify({"ok": False, "message": f"未知类型 {kind}"}), 400
+
+    if code != 0:
+        return jsonify({"ok": False, "message": msg or f"{label}生成失败"}), 500
+    return jsonify({"ok": True, "message": f"{label}已生成"})
+
+
+@app.route("/api/pending")
+def api_pending():
+    """哪些小时有数据但还没分析 —— 看板据此在时间线上标出可点击分析的时段。"""
+    import capture as cap
+    cfg = load_config()
+    shots = SCRIPT_DIR / cfg["capture"]["output_dir"]
+    reports = SCRIPT_DIR / cfg["report"]["output_dir"]
+    return jsonify({
+        "hours": [{"date": d, "hour": h} for d, h in cap.pending_hours(shots, reports, cap=200)],
+        "days": cap.pending_days(shots, reports),
+    })
 
 
 if __name__ == "__main__":

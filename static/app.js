@@ -410,8 +410,24 @@ async function loadReportsList() {
     view.innerHTML = "";
     document.getElementById("date-selector").innerHTML = "";
 
+    // 周报月报不自动生成，日总结每天一次自动跑 —— 这里给个手动补跑的入口
+    const label = { daily: "日总结", weekly: "本周周报", monthly: "本月月报" }[currentType];
+    if (label) {
+        const gen = document.createElement("button");
+        gen.className = "gen-btn";
+        gen.textContent = `生成${label}`;
+        gen.addEventListener("click", () => runSummary(currentType, gen, label));
+        view.appendChild(gen);
+    }
+
     if (reports.length === 0) {
-        view.innerHTML = '<p style="color:#555;padding:20px;">暂无报告</p>';
+        const empty = document.createElement("p");
+        empty.className = "hint";
+        empty.style.padding = "0 22px";
+        empty.textContent = currentType === "daily"
+            ? "还没有日总结。每天 23:50 自动生成，也可以现在手动跑一次。"
+            : "还没有报告。周报和月报只在点击时生成。";
+        view.appendChild(empty);
         document.getElementById("content-view").innerHTML = "";
         return;
     }
@@ -507,17 +523,17 @@ function initControls() {
             const data = await res.json();
             if (data.ok) {
                 btn.textContent = "✓ 成功";
-                setTimeout(() => { btn.textContent = "⟳ 触发分析"; btn.disabled = false; loadTimeline(); }, 1500);
+                setTimeout(() => { btn.textContent = "⟳ 分析上一小时"; btn.disabled = false; loadTimeline(); }, 1500);
             } else {
                 btn.textContent = "✗ 失败";
                 alert("分析失败: " + (data.message || "未知错误"));
-                btn.textContent = "⟳ 触发分析";
+                btn.textContent = "⟳ 分析上一小时";
                 btn.disabled = false;
             }
         } catch (e) {
             btn.textContent = "✗ 失败";
             alert("请求失败: " + e.message);
-            btn.textContent = "⟳ 触发分析";
+            btn.textContent = "⟳ 分析上一小时";
             btn.disabled = false;
         }
     });
@@ -751,4 +767,49 @@ async function doPurge(dates, keepText) {
     if (res.error) { alert("失败：" + res.error); return; }
     alert(`已释放 ${fmtSize(res.freed)}` + (res.vectors ? `，清除向量 ${res.vectors} 条` : ""));
     loadStorage();
+}
+
+
+// --- 按需生成 ---
+// 小时报告不再自动分析：每小时一次模型调用，而绝大多数小时没人会看。
+// 要看哪个小时就点哪个。周报月报同理。
+async function runSummary(kind, btn, label) {
+    const original = btn.textContent;
+    btn.textContent = "生成中…";
+    btn.disabled = true;
+    try {
+        const res = await fetch("/api/control/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind }),
+        }).then(r => r.json());
+        if (!res.ok) { alert(`${label}生成失败：${res.message || "未知错误"}`); return; }
+        btn.textContent = "✓ 已生成";
+        setTimeout(() => loadReportsList(), 900);
+    } catch (e) {
+        alert(`${label}生成失败：${e.message}`);
+    } finally {
+        setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 900);
+    }
+}
+
+async function analyzeHour(date, hour, btn) {
+    const original = btn.textContent;
+    btn.textContent = "分析中…";
+    btn.disabled = true;
+    try {
+        const res = await fetch("/api/control/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ date, hour }),
+        }).then(r => r.json());
+        if (!res.ok) { alert("分析失败：" + (res.message || "未知错误")); return; }
+        if (!res.generated) { alert(res.message); return; }
+        loadTimeline();
+    } catch (e) {
+        alert("分析失败：" + e.message);
+    } finally {
+        btn.textContent = original;
+        btn.disabled = false;
+    }
 }

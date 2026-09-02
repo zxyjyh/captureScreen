@@ -337,7 +337,10 @@ def capture_screenshot(
             except subprocess.CalledProcessError:
                 continue
             side_app = app_on_display(bounds)
-            side.with_suffix(".meta").write_text(f"{side_app}\n\npid=")
+            # 三行格式要和主文件一致：应用名 / 标题 / pid。
+            # 应用名为空时写「未知应用」而不是留空 —— 留空会让 read_meta
+            # 把第三行的 "pid=" 当成应用名，混进时间统计
+            side.with_suffix(".meta").write_text(f"{side_app or '未知应用'}\n\npid=")
             extra += 1
 
     screen = f" | 屏{active}" if active is not None else ""
@@ -619,14 +622,67 @@ def analyze_hour(date_str: str, hour: int) -> bool:
     return False
 
 
-def run_hourly_analysis(output_dir: Path, report_dir: Path):
-    """把所有欠着的小时补齐，而不只是分析上一个小时。"""
-    todo = pending_hours(output_dir, report_dir)
+def pending_days(output_dir: Path, report_dir: Path, lookback_days: int = 7) -> list[str]:
+    """有截图却还没有日总结的日期，不含今天（还没过完）。"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    cutoff = datetime.now() - timedelta(days=lookback_days)
+    out = []
+    if not output_dir.exists():
+        return out
+    for date_dir in sorted(output_dir.iterdir()):
+        if not date_dir.is_dir() or date_dir.name == today:
+            continue
+        try:
+            if datetime.strptime(date_dir.name, "%Y-%m-%d") < cutoff:
+                continue
+        except ValueError:
+            continue
+        if not any(f.suffix in IMAGE_SUFFIXES for f in date_dir.iterdir()):
+            continue
+        if (report_dir / date_dir.name / "daily-summary.md").exists():
+            continue
+        if (report_dir / date_dir.name / "daily.skipped").exists():
+            continue
+        out.append(date_dir.name)
+    return out
+
+
+def summarize_day(date_str: str) -> bool:
+    python = str(SCRIPT_DIR / "venv" / "bin" / "python")
+    stamp = datetime.now().strftime("%H:%M:%S")
+    try:
+        r = subprocess.run(
+            [python, str(SCRIPT_DIR / "summarize.py"), "--date", date_str],
+            capture_output=True, text=True, timeout=900,
+        )
+    except Exception as e:
+        print(f"[{stamp}] 日总结 {date_str} 出错: {e}")
+        return False
+    if r.returncode == 0:
+        print(f"[{stamp}] 日总结完成 {date_str}")
+        return True
+    detail = (r.stderr.strip() or r.stdout.strip() or "无输出").splitlines()[-1]
+    print(f"[{stamp}] 日总结 {date_str} 未完成: {detail[:120]}")
+    return False
+
+
+def run_daily_summary(output_dir: Path, report_dir: Path):
+    """补齐所有欠着的日总结。
+
+    小时报告不再自动分析 —— 那是每小时一次模型调用，而绝大多数小时
+    根本不会有人去看。改成用户在看板上点某个小时才分析。
+    日总结每天一次：它直接从屏幕文本出发，已有的小时报告顺带复用，
+    所以一天只花一次调用，不是十几次。
+
+    补齐而不是「只做昨天」：机器在定点时刻可能是关着的，
+    只做昨天会留下永久空洞。
+    """
+    todo = pending_days(output_dir, report_dir)
     if not todo:
         return
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 待分析 {len(todo)} 个小时")
-    for date_str, hour in todo:
-        analyze_hour(date_str, hour)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] 待生成日总结 {len(todo)} 天")
+    for date_str in todo:
+        summarize_day(date_str)
 
 
 def capture_reason(
@@ -777,7 +833,7 @@ def main():
         cleanup_old_reports(report_dir, report_retention)
 
     housekeeping()
-    run_hourly_analysis(output_dir, report_dir)
+    run_daily_summary(output_dir, report_dir)
 
     if mode == "interval":
         schedule.every(interval).minutes.do(
@@ -785,8 +841,10 @@ def main():
             "定时", image_config
         )
     schedule.every(1).hours.do(housekeeping)
-    # 按整点触发而不是「每隔一小时」：后者从进程启动计时，重启就漂移
-    schedule.every().hour.at(":05").do(run_hourly_analysis, output_dir, report_dir)
+    # 日总结每天一次。按钟点触发而不是「每隔 24 小时」：
+    # 后者从进程启动计时，重启一次就漂移。
+    daily_at = config["report"].get("daily_summary_at", "23:50")
+    schedule.every().day.at(daily_at).do(run_daily_summary, output_dir, report_dir)
 
     pace = (
         f"interval={interval}min" if mode == "interval"
@@ -796,6 +854,7 @@ def main():
     print(
         f"Capture started ({pace}, retention={retention_days}d, "
         f"idle_skip={int(idle_skip)}s, displays={'all' if capture_all else 'active'}, "
+        f"daily@{daily_at}, "
         f"accessibility={'on' if accessibility.is_trusted() else 'NO PERMISSION'}). "
         f"PID={os.getpid()}"
     )

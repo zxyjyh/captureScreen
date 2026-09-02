@@ -140,7 +140,12 @@ def read_meta(filepath: Path) -> dict:
         # 用 splitlines 而不是 split("\n", 1)：meta 第三行是 pid=，
         # 限制切分次数会把它并进标题
         lines = meta_file.read_text().strip().splitlines()
-        return {"app": lines[0] if lines else "", "title": lines[1] if len(lines) > 1 else ""}
+        app = lines[0] if lines else ""
+        # 早期数据里副屏 meta 的应用名为空，strip 之后第一行就成了 "pid="，
+        # 会以一个假应用的身份混进时间统计
+        if app.startswith("pid="):
+            app = ""
+        return {"app": app, "title": lines[1] if len(lines) > 1 else ""}
     return {"app": "", "title": ""}
 
 
@@ -173,6 +178,15 @@ def build_timeline(screenshots: list[Path]) -> list[dict]:
     return timeline
 
 
+def canonical_app(app: str) -> str:
+    """归一应用名，用于时间统计。
+
+    「钉钉(无可读窗口)」和「钉钉」是同一个应用 —— 那个后缀是采集时
+    对画面归属的诚实标注，不该在时长统计里裂成两个条目。
+    """
+    return re.sub(r"\(无可读窗口\)$", "", app or "").strip() or "未知应用"
+
+
 def build_time_allocation(timeline: list[dict]) -> dict[str, int]:
     """代码统计每个应用的使用分钟数"""
     allocation = {}
@@ -180,7 +194,7 @@ def build_time_allocation(timeline: list[dict]) -> dict[str, int]:
         start = datetime.strptime(entry["from"], "%H:%M")
         end = datetime.strptime(entry["to"], "%H:%M")
         minutes = max(1, int((end - start).total_seconds() / 60))
-        app = entry["app"]
+        app = canonical_app(entry["app"])
         allocation[app] = allocation.get(app, 0) + minutes
     return dict(sorted(allocation.items(), key=lambda x: -x[1]))
 

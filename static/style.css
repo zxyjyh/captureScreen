@@ -634,3 +634,21 @@ pre.cmd {
 }
 
 .storage-notice b { color: var(--ink); font-family: var(--font-num); font-weight: 500; }
+
+
+/* 按需生成按钮 —— 周报月报只在点击时生成 */
+.gen-btn {
+    margin: 12px 22px 14px;
+    width: calc(100% - 44px);
+    padding: 9px;
+    border: none;
+    border-radius: var(--r-s);
+    background: var(--accent-l);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.gen-btn:hover { background: var(--accent-b); }
+.gen-btn:disabled { opacity: .6; cursor: default; }
