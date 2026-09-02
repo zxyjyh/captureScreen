@@ -99,6 +99,59 @@ def check_api_key() -> bool:
     return True
 
 
+def check_privacy() -> bool:
+    """隐私配置有没有真的生效。
+
+    这些同样是静默失败：术语表没填就照样跑，只是人名直接出网；
+    目录权限松了也不会报错，只是同机器的其他进程都能读。
+    """
+    import yaml
+    ok_all = True
+    cfg = yaml.safe_load((SCRIPT_DIR / "config.yaml").read_text())
+    privacy = cfg.get("privacy", {})
+
+    if not privacy.get("enabled"):
+        print(f"{BAD} privacy.enabled 为 false —— 敏感窗口过滤整个关闭了")
+        ok_all = False
+
+    local_only = privacy.get("local_only_apps") or []
+    print(f"{OK} 仅本地应用 {len(local_only)} 个（内容不发给模型）"
+          if local_only else f"{WARN} 未配置 local_only_apps")
+
+    import redact
+    terms = redact.load_terms()
+    n = sum(len(v) for v in terms.values())
+    if n:
+        print(f"{OK} 脱敏术语 {n} 个（{'、'.join(terms)}）")
+    else:
+        print(f"{WARN} 脱敏术语表为空 —— 人名、公司名会原样发给模型")
+        print(f"    发现候选: {sys.executable} {SCRIPT_DIR / 'redact.py'}")
+        print(f"    填进: {redact.TERMS_FILE}")
+        ok_all = False
+
+    loose = []
+    for name in ("screenshots", "reports", "chroma_db", ".env", "redact.local.yaml"):
+        target = SCRIPT_DIR / name
+        if target.exists() and (target.stat().st_mode & 0o077):
+            loose.append(name)
+    if loose:
+        print(f"{BAD} 权限过松，同机器其他进程可读: {', '.join(loose)}")
+        print(f"    修复: chmod -R go-rwx {' '.join(loose)}")
+        ok_all = False
+    else:
+        print(f"{OK} 数据目录权限仅自己可读")
+
+    left = 0
+    try:
+        import capture
+        left = capture.paused_seconds()
+    except Exception:
+        pass
+    if left:
+        print(f"{WARN} 采集已暂停，{left // 60} 分钟后恢复")
+    return ok_all
+
+
 def check_agent() -> bool:
     try:
         out = subprocess.run(["launchctl", "list"], capture_output=True, text=True, timeout=10).stdout
@@ -136,7 +189,8 @@ def main() -> int:
     print(f"captureScreen 自检\n路径: {SCRIPT_DIR}\nPython: {sys.executable}\n")
     results = [
         check_deps(), check_screen_recording(), check_accessibility(),
-        check_text_extraction(), check_api_key(), check_agent(), check_data(),
+        check_text_extraction(), check_api_key(), check_privacy(),
+        check_agent(), check_data(),
     ]
     failed = results.count(False)
     print()

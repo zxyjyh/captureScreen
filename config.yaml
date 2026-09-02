@@ -45,6 +45,11 @@ privacy:
   # timeline / search_screen 这些纯本地工具照样搜得到（它们不联网），
   # 只是不会进入发往模型的上下文，也就不会出现在报告里。
   # 注意：已经被 skip_keywords 挡掉的（如微信）根本不会采集，写在这里是死配置。
+  #
+  # 默认把工作 IM 放进来，是因为刚装好时 redact.local.yaml 是空的 ——
+  # 那时候放行等于人名、公司名直接出网。等你填好术语表、跑过
+  # `python redact.py` 确认没有残留，再把钉钉挪出去，
+  # 它的内容就会带着占位符进入报告。
   local_only_apps:
     - 钉钉
     - DingTalk
@@ -59,6 +64,9 @@ analysis:
 
 report:
   output_dir: reports
+  # 报告是被模型浓缩过的内容，信息密度比单张截图高得多，
+  # 留得越久风险越大。0 表示永久保留。
+  retention_days: 90
 
 rag:
   enabled: true

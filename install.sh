@@ -140,6 +140,15 @@ else
   warn "服务注册了但没能启动，看日志: tail -50 $DIR/capture.log"
 fi
 
+# ── 5.5 数据目录权限 ───────────────────────────────────────────
+# 截图和屏幕文本是这台机器上最敏感的文件之一，默认 755/644 意味着
+# 同机器的其他用户能直接读。
+for d in screenshots reports chroma_db; do
+  [ -e "$DIR/$d" ] && chmod -R go-rwx "$DIR/$d" 2>/dev/null || true
+done
+[ -f "$DIR/redact.local.yaml" ] && chmod 600 "$DIR/redact.local.yaml" || true
+[ -f "$DIR/capture.log" ] && chmod 600 "$DIR/capture.log" || true
+
 # ── 6. 权限 ────────────────────────────────────────────────────
 # macOS 的权限授予对象是「可执行文件」，不是项目目录。
 # 刚重建过 venv 的话，之前授过的权限不算数，要对新的 python 重新授权。
@@ -157,6 +166,12 @@ $(printf '\033[1m接下来\033[0m')
     系统设置 → 隐私与安全性 → 屏幕录制
     系统设置 → 隐私与安全性 → 辅助功能
   加完重启服务：  bash $DIR/start.sh
+
+  隐私（强烈建议装完就做）：
+    cp $DIR/redact.example.yaml $DIR/redact.local.yaml
+    $PY $DIR/redact.py          # 从你自己的数据里找出人名候选
+    然后把确认是人名的填进 redact.local.yaml —— 它们不会被发给模型。
+    随时暂停：bash $DIR/pause.sh 30
 
   接进 Claude Code（可选，装完能直接问「我上周三在干什么」）：
     claude mcp add capturescreen -- $PY $DIR/mcp_server.py

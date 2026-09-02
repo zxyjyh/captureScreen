@@ -5,6 +5,8 @@ screenshots/
 reports/
 # 看板批注
 annotations.json
+# 脱敏术语表：内含真实同事姓名与公司名
+redact.local.yaml
 # 向量库
 chroma_db/
 
@@ -21,3 +23,4 @@ venv/
 
 # ── 历史备份（重建 git 历史时保留的旧仓库）────
 .git.bak-*
+.paused-until

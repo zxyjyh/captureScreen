@@ -60,10 +60,70 @@ class _EmbeddingResponse:
     data: list[_EmbeddingItem]
 
 
+_redactor = None
+
+
+def redactor():
+    """全局脱敏器，懒加载。术语表在进程生命周期内只读一次。"""
+    global _redactor
+    if _redactor is None:
+        import redact
+        _redactor = redact.Redactor(redact.load_terms())
+    return _redactor
+
+
+def _scrub(payload: dict) -> dict:
+    """出网前脱敏。
+
+    放在这一层而不是各调用点：调用点有七个（分析、日报、周期汇总、
+    问答、向量索引……），漏掉任何一个就前功尽弃 ——
+    实测就漏过：报告在 analyze.py 里脱敏后还原成真名，
+    转手又被 rag.py 发去做 embedding，绕过了整套机制。
+    收口在这里，新增调用点也自动被覆盖。
+
+    只处理文本字段。图片是 base64，既扫不动也没法脱敏 ——
+    多模态路径只能靠 privacy.local_only_apps 挡在前面。
+    """
+    r = redactor()
+    if not r.term_count:
+        # 术语表为空时仍要跑模式匹配，邮箱手机号不该出网
+        pass
+
+    def scrub_text(v):
+        return r.redact(v) if isinstance(v, str) else v
+
+    out = dict(payload)
+    if isinstance(out.get("messages"), list):
+        msgs = []
+        for m in out["messages"]:
+            m = dict(m)
+            c = m.get("content")
+            if isinstance(c, str):
+                m["content"] = scrub_text(c)
+            elif isinstance(c, list):
+                m["content"] = [
+                    {**part, "text": scrub_text(part["text"])}
+                    if isinstance(part, dict) and part.get("type") == "text" and "text" in part
+                    else part
+                    for part in c
+                ]
+            msgs.append(m)
+        out["messages"] = msgs
+
+    inp = out.get("input")
+    if isinstance(inp, str):
+        out["input"] = scrub_text(inp)
+    elif isinstance(inp, list):
+        out["input"] = [scrub_text(x) for x in inp]
+
+    return out
+
+
 def _post(path: str, payload: dict, api_key: str) -> dict:
     if not api_key:
         raise LLMError("未配置 API key：把 ZHIPU_API_KEY 写进 .env")
 
+    payload = _scrub(payload)
     url = f"{BASE_URL}{path}"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     last: Exception | None = None

@@ -485,7 +485,15 @@ def main():
         context, sources = build_text_context(key_frames, local_only)
         print(f"Text context: {len(context)} chars, sources={sources}")
         if len(context) >= _MIN_USEFUL_CHARS:
-            ai_content = ai_analyze_text(context, text_model, allowed_times(key_frames))
+            # 脱敏在 llm.py 的出网收口统一做，这里只负责把占位符换回来。
+            # 必须用同一个实例，否则两边的编号对不上，会还原成别人。
+            import llm
+            r = llm.redactor()
+            if r.term_count:
+                print(f"脱敏: {r.term_count} 个术语")
+            ai_content = r.restore(
+                ai_analyze_text(context, text_model, allowed_times(key_frames))
+            )
         else:
             # 抽不到文字有两种：屏幕上本来就没东西（锁屏、黑屏），
             # 或者有画面但都是图。只有后者值得花钱走多模态。

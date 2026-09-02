@@ -107,6 +107,26 @@ def frontmost() -> tuple[int, str, str]:
     return pid, name, accessibility.frontmost_window_title(pid)
 
 
+PAUSE_FILE = SCRIPT_DIR / ".paused-until"
+
+
+def paused_seconds() -> int:
+    """暂停还剩多少秒，没暂停返回 0。
+
+    用带过期时间的哨兵文件而不是让人去停服务：忘记恢复比忘记暂停常见得多，
+    「我关了它然后三周没开」等于这个工具不存在。到点自动恢复。
+    """
+    try:
+        until = float(PAUSE_FILE.read_text().strip())
+    except (FileNotFoundError, OSError, ValueError):
+        return 0
+    left = int(until - time.time())
+    if left <= 0:
+        PAUSE_FILE.unlink(missing_ok=True)
+        return 0
+    return left
+
+
 def screen_unavailable() -> str:
     """屏幕上没有可记录的东西时，返回原因；可以正常采集时返回空串。
 
@@ -191,6 +211,11 @@ def capture_screenshot(
 ):
     now = datetime.now()
 
+    left = paused_seconds()
+    if left:
+        print(f"[{now.strftime('%H:%M:%S')}] Skipped: paused ({left//60}分{left%60}秒后恢复)")
+        return
+
     reason = screen_unavailable()
     if reason:
         print(f"[{now.strftime('%H:%M:%S')}] Skipped: {reason}")
@@ -274,6 +299,31 @@ def capture_screenshot(
     print(f"[{now.strftime('%H:%M:%S')}] {app_name} | {title[:40]} | ax={ax_chars}字{screen}{more}")
 
 
+def cleanup_old_reports(report_dir: Path, retention_days: int):
+    """按保留期删过期报告。
+
+    原来只清截图，报告永久保留 —— 而报告是被模型浓缩过的内容，
+    信息密度比单张截图高得多，留得越久风险越大。
+    0 表示不清理。
+    """
+    if not retention_days or not report_dir.exists():
+        return
+    cutoff = datetime.now() - timedelta(days=retention_days)
+    for date_dir in report_dir.iterdir():
+        if not date_dir.is_dir():
+            continue
+        try:
+            dir_date = datetime.strptime(date_dir.name, "%Y-%m-%d")
+        except ValueError:
+            continue  # weekly 这类非日期目录不动
+        if dir_date >= cutoff:
+            continue
+        for f in date_dir.iterdir():
+            f.unlink()
+        date_dir.rmdir()
+        print(f"Cleaned up report {date_dir}")
+
+
 def cleanup_old_screenshots(output_dir: Path, report_dir: Path, retention_days: int):
     """只删除已经成功生成报告的截图，未分析的截图保留"""
     cutoff = datetime.now() - timedelta(days=retention_days)
@@ -335,11 +385,16 @@ def handle_signal(signum, frame):
 
 
 def main():
+    # 截图和屏幕文本是这台机器上最敏感的文件之一，默认 644 意味着
+    # 同机器的任何进程、任何其他用户都能读。收紧到「只有自己」。
+    os.umask(0o077)
+
     config = load_config()
     capture_config = config["capture"]
     interval = capture_config["interval_minutes"]
     output_dir = SCRIPT_DIR / capture_config["output_dir"]
     retention_days = capture_config["retention_days"]
+    report_retention = config["report"].get("retention_days", 0)
     report_dir = SCRIPT_DIR / config["report"]["output_dir"]
     privacy_config = config.get("privacy")
     idle_skip = float(capture_config.get("idle_skip_seconds", 300))
@@ -353,11 +408,13 @@ def main():
 
     capture_screenshot(output_dir, privacy_config, idle_skip, capture_all)
     cleanup_old_screenshots(output_dir, report_dir, retention_days)
+    cleanup_old_reports(report_dir, report_retention)
 
     schedule.every(interval).minutes.do(
         capture_screenshot, output_dir, privacy_config, idle_skip, capture_all
     )
     schedule.every(1).hours.do(cleanup_old_screenshots, output_dir, report_dir, retention_days)
+    schedule.every(1).hours.do(cleanup_old_reports, report_dir, report_retention)
     schedule.every(1).hours.do(run_hourly_analysis)
 
     print(
