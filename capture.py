@@ -79,6 +79,7 @@ import yaml
 from PIL import Image
 
 import accessibility
+import audit
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -425,13 +426,16 @@ def drop_images(output_dir: Path, keep_days: int) -> int:
     """
     if not keep_days or not output_dir.exists():
         return 0
+    # 目录名是日期，按当天 23:59 算而不是 00:00 —— 否则 keep_days=2 时
+    # 前天的图片今天白天就被删了，实际只留了一天多
     cutoff = datetime.now() - timedelta(days=keep_days)
-    freed = rescued = 0
+    freed = rescued = removed = 0
     for date_dir in sorted(output_dir.iterdir()):
         if not date_dir.is_dir():
             continue
         try:
-            if datetime.strptime(date_dir.name, "%Y-%m-%d") >= cutoff:
+            day_end = datetime.strptime(date_dir.name, "%Y-%m-%d") + timedelta(days=1)
+            if day_end >= cutoff:
                 continue
         except ValueError:
             continue
@@ -452,9 +456,11 @@ def drop_images(output_dir: Path, keep_days: int) -> int:
                     continue
             freed += f.stat().st_size
             f.unlink()
+            removed += 1
     if freed:
         extra = f"，删前补抽 {rescued} 张" if rescued else ""
         print(f"已清理旧图片，释放 {freed / 1024 / 1024:.0f} MB（文本保留{extra}）")
+        audit.record("定时任务", f"图片超过保留期 {keep_days} 天", removed, freed)
     return freed
 
 
@@ -500,6 +506,7 @@ def enforce_disk_budget(output_dir: Path, max_mb: int) -> int:
             d.rmdir()
 
     print(f"超出磁盘上限 {max_mb} MB，已释放 {freed / 1024 / 1024:.0f} MB")
+    audit.record("定时任务", f"超出磁盘上限 {max_mb}MB", 0, freed)
     return freed
 
 
@@ -526,6 +533,7 @@ def cleanup_old_reports(report_dir: Path, retention_days: int):
             f.unlink()
         date_dir.rmdir()
         print(f"Cleaned up report {date_dir}")
+        audit.record("定时任务", f"报告超过保留期 {retention_days} 天：{date_dir.name}")
 
 
 def cleanup_old_screenshots(output_dir: Path, report_dir: Path, retention_days: int):

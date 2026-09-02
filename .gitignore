@@ -25,3 +25,4 @@ venv/
 # ── 历史备份（重建 git 历史时保留的旧仓库）────
 .git.bak-*
 .paused-until
+deletions.log

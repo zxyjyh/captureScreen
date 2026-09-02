@@ -304,6 +304,13 @@ def api_purge():
         removed.append(date)
 
     vectors = 0 if keep_text else purge.purge_vectors(db_path, dates, dry_run=False)
+
+    import audit
+    audit.record(
+        "看板",
+        ("只删图片：" if keep_text else "全部删除：") + "、".join(removed),
+        len(removed), freed,
+    )
     return jsonify({"ok": True, "dates": removed, "freed": freed, "vectors": vectors})
 
 

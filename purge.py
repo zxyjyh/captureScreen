@@ -177,6 +177,10 @@ def main() -> int:
                 f.unlink()
                 print(f"已删 {f}")
 
+    import audit
+    audit.record("命令行 purge.py",
+                 ("--all" if args.all else f"--day {args.day}" if args.day else f"--before {args.before}")
+                 + "：" + "、".join(dates), len(dates), total)
     print(f"\n完成，释放 {_human(total)}。")
     _remind_backups()
     return 0
