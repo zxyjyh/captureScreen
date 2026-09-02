@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
-from llm import ZhipuClient as ZhipuAI
+import llm
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -178,8 +178,12 @@ def main():
 
     prompt = QUERY_TEMPLATE.format(query=args.query, context=context)
 
-    api_key = os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", "")
-    client = ZhipuAI(api_key=api_key)
+    cfg = load_config()["api"]
+    client = llm.get_client(
+        cfg.get("provider", "claude"),
+        os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", ""),
+        cfg.get("model", ""),
+    )
 
     response = client.chat.completions.create(
         model=model,

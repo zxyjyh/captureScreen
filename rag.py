@@ -6,7 +6,7 @@ from pathlib import Path
 
 import chromadb
 import yaml
-from llm import ZhipuClient as ZhipuAI
+import llm
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -24,8 +24,12 @@ def load_config():
 
 
 def _get_client():
-    api_key = os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", "")
-    return ZhipuAI(api_key=api_key)
+    cfg = load_config()["api"]
+    return llm.get_client(
+        cfg.get("provider", "claude"),
+        os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", ""),
+        cfg.get("model", ""),
+    )
 
 
 def _get_collection(rag_config: dict) -> chromadb.Collection:
@@ -47,15 +51,28 @@ def _embed(texts: list[str], model: str) -> list[list[float]]:
 # 「时间分配」是纯统计，检索价值为零；「亮点」「可改进」是模型的泛化说教，
 # 按项目目标（找回 / 重建 / 合成）属于非目标内容，索引它们只会稀释检索结果。
 _SECTION_ROUTING = {
-    "活动时间线": "活动事实",
+    # 检索价值最高的一节：实体、文件路径、链接、报错、决定、待办。
+    # 之前这张表是旧报告格式的，关键事实和阅读两节根本没被路由，
+    # 每份报告只索引出一个 chunk —— 最有用的 500 字静默丢在外面。
+    "关键事实": "关键事实",
+    "关键内容": "关键内容",      # 兼容早期报告格式
+    "查看的内容": "关键内容",     # 兼容早期报告格式
+
     "活动流": "活动事实",
-    "具体做了什么": "活动事实",  # 兼容早期报告格式
-    "关键内容": "关键内容",
-    "查看的内容": "关键内容",    # 兼容早期报告格式
-    "意图分析": "关键内容",
+    "具体做了什么": "活动事实",   # 兼容早期报告格式
+
+    "阅读与信息摄入": "阅读",
+    "文章内容总结": "阅读",       # 兼容早期报告格式
+
+    # 不索引的：
+    # 「时间分配」「活动时间线」是纯统计和应用名，语义检索价值为零，
+    # 混进来只会稀释结果 —— 这两个需求由 timeline 工具精确回答。
+    # 「意图分析」「亮点」「可改进」是旧格式的模型发挥，按项目非目标不该留。
 }
 
-_CHUNK_ORDER = ["活动事实", "关键内容"]
+# chunk 的入库顺序。这是第二道白名单：_SECTION_ROUTING 决定小节归到哪个桶，
+# 这里决定哪些桶真的入库 —— 只改前者不改这里，新桶会被静默丢掉。
+_CHUNK_ORDER = ["关键事实", "关键内容", "活动事实", "阅读"]
 
 
 def _split_sections(content: str) -> list[tuple[str, str]]:
@@ -64,6 +81,9 @@ def _split_sections(content: str) -> list[tuple[str, str]]:
     报告里 `## 具体内容` 只是个容器，真正的内容在它下面的 ### 子标题里，
     所以两级标题一视同仁地拆平。
     """
+    # 报告末尾的「另有 N 帧来自仅本地应用」是给人看的说明，
+    # 不去掉会被当成最后一节的正文索引进去，污染检索结果
+    content = re.split(r"\n---\n\n> 另有 \d+ 帧", content)[0]
     parts = re.split(r"^#{2,3} (.+)$", content, flags=re.MULTILINE)
     sections = []
     for i in range(1, len(parts), 2):

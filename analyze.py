@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 from PIL import Image
-from llm import ZhipuClient as ZhipuAI
+import llm
 
 import ocr
 
@@ -400,10 +400,19 @@ def encode_image(filepath: Path) -> str:
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
+def _client():
+    """按 config 里的 provider 取客户端。两个后端调用形状一致。"""
+    cfg = load_config()["api"]
+    return llm.get_client(
+        cfg.get("provider", "claude"),
+        os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", ""),
+        cfg.get("model", ""),
+    )
+
+
 def ai_analyze_images(screenshots: list[Path], model: str) -> str:
     """AI 只负责一件事：理解图片中的具体内容"""
-    api_key = os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", "")
-    client = ZhipuAI(api_key=api_key)
+    client = _client()
 
     content = [{"type": "text", "text": AI_PROMPT}]
     for ss in screenshots:
@@ -425,8 +434,7 @@ def ai_analyze_text(context: str, model: str, times: str = "") -> str:
     只负责「理解这些字意味着什么」。图像 token 比文本 token 贵一个数量级，
     而读字这件事操作系统本地免费就能做。
     """
-    api_key = os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", "")
-    client = ZhipuAI(api_key=api_key)
+    client = _client()
     prompt = AI_TEXT_PROMPT.format(allowed=times or "（以每块开头的时间为准）")
     response = client.chat.completions.create(
         model=model,
@@ -490,9 +498,14 @@ def main():
     config = load_config()
     screenshot_dir = SCRIPT_DIR / config["capture"]["output_dir"]
     report_dir = SCRIPT_DIR / config["report"]["output_dir"]
-    model = config["api"]["model"]
-    # 文本路径和视觉路径是两个模型：拿视觉模型跑纯文本，贵且效果更差
-    text_model = config["api"].get("text_model", model)
+    provider = config["api"].get("provider", "claude")
+    if provider == "zhipu":
+        model = config["api"].get("zhipu_model", "")
+        text_model = config["api"].get("zhipu_text_model", model)
+    else:
+        model = config["api"].get("model", "")
+        # 文本路径和视觉路径是两个模型：拿视觉模型跑纯文本，贵且效果更差
+        text_model = config["api"].get("text_model", model)
 
     now = datetime.now()
     date_str = args.date or now.strftime("%Y-%m-%d")

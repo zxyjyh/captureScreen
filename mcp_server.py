@@ -139,13 +139,23 @@ def recall(question: str, days: int = 30, top_k: int = 10) -> str:
     if not results:
         return f"没有检索到与「{question}」相关的记录"
 
+    # rag.search 返回的是扁平结构（content/date/hour/section/distance），
+    # 不是 chromadb 原始的 document/metadata。取错字段会得到一堆空块。
     blocks = []
     for r in results:
-        meta = r.get("metadata", {}) if isinstance(r, dict) else {}
-        stamp = f"{meta.get('date', '?')} {meta.get('hour', '?')}时"
-        text = r.get("document", "") if isinstance(r, dict) else str(r)
-        blocks.append(f"[{stamp}] {text[:400]}")
-    return f"# 关于「{question}」找到 {len(blocks)} 段\n\n" + "\n\n".join(blocks)
+        stamp = f"{r.get('date', '?')} {r.get('hour', '?'):0>2}时"
+        section = r.get("section", "")
+        text = (r.get("content") or r.get("full_content") or "").strip()
+        if not text:
+            continue
+        head = f"[{stamp}]" + (f" {section}" if section else "")
+        blocks.append(f"{head}\n{text[:400]}")
+
+    if not blocks:
+        return f"检索到 {len(results)} 条记录但内容为空，可能索引损坏，试试重建：python rag.py"
+    return (f"# 关于「{question}」找到 {len(blocks)} 段\n"
+            f"（语义检索，可能有偏差；要精确原文用 search_screen）\n\n"
+            + "\n\n".join(blocks))
 
 
 @mcp.tool()

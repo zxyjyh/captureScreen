@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
-from llm import ZhipuClient as ZhipuAI
+import llm
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -68,8 +68,12 @@ def load_config():
 
 
 def _get_client():
-    api_key = os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", "")
-    return ZhipuAI(api_key=api_key)
+    cfg = load_config()["api"]
+    return llm.get_client(
+        cfg.get("provider", "claude"),
+        os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", ""),
+        cfg.get("model", ""),
+    )
 
 
 def _date_range(start: str, end: str) -> list[str]:

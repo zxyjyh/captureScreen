@@ -1,9 +1,18 @@
 api:
-  # 视觉模型：只在无障碍树和 OCR 都抽不出东西时才走这条路
-  model: glm-4.6v-flash
-  # 文本模型：主路径。用视觉模型处理纯文本既贵又不擅长
-  text_model: glm-4-flash
+  # claude: 走 claude-agent-sdk，透过 Claude Code CLI 用现有订阅鉴权。
+  #         不需要单独的 API key，也就没有「余额不足」这回事。
+  #         代价是每次调用起一个 CLI 子进程，约 9 秒。
+  # zhipu:  走智谱 REST，需要 ZHIPU_API_KEY。
+  provider: claude
+
+  # claude 后端留空表示用 CLI 的默认模型
+  model: ""
+  text_model: ""
   max_tokens: 4096
+
+  # zhipu 后端用
+  zhipu_model: glm-4.6v-flash
+  zhipu_text_model: glm-4-flash
 
 capture:
   # event: 由事件触发 —— 切换应用、换窗口标题、打字停顿。
@@ -107,6 +116,10 @@ report:
 rag:
   enabled: true
   db_path: chroma_db
+  # claude 后端没有 embedding 接口，走 chromadb 自带的本地模型 ——
+  # 免费、离线，而且直接少掉一条出网路径。
+  # 代价：它以英文训练为主，中文区分度偏弱（实测相关 0.58 / 无关 0.52），
+  # 精确检索请用 search_screen，那是 grep 原文，不依赖向量。
   embedding_model: embedding-3
   top_k: 20
   max_chars_per_chunk: 300

@@ -89,13 +89,39 @@ def check_text_extraction() -> bool:
 
 
 def check_api_key() -> bool:
+    import yaml
+    cfg = yaml.safe_load((SCRIPT_DIR / "config.yaml").read_text())
+    provider = cfg.get("api", {}).get("provider", "claude")
+
+    if provider == "claude":
+        import shutil
+        import subprocess
+        cli = shutil.which("claude")
+        if not cli:
+            # SDK 自带一份 CLI，找不到系统的那份不一定是问题
+            try:
+                import claude_agent_sdk  # noqa: F401
+                print(f"{OK} 模型后端 claude（用 SDK 自带的 CLI）")
+                return True
+            except ImportError:
+                print(f"{BAD} claude-agent-sdk 未安装")
+                print(f"    修复: {sys.executable} -m pip install claude-agent-sdk")
+                return False
+        try:
+            ver = subprocess.run([cli, "--version"], capture_output=True,
+                                 text=True, timeout=15).stdout.strip()
+        except Exception:
+            ver = "?"
+        print(f"{OK} 模型后端 claude（{ver}，用 Claude Code 订阅鉴权，无需 API key）")
+        return True
+
     key = os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", "")
     if not key:
-        print(f"{BAD} 未找到 ZHIPU_API_KEY —— 采集照常，但每小时的分析会失败")
+        print(f"{BAD} provider=zhipu 但未找到 ZHIPU_API_KEY —— 采集照常，分析会失败")
         print(f"    修复: 把 ZHIPU_API_KEY=你的key 写进 {SCRIPT_DIR / '.env'}")
         return False
     # 只回显首尾各 4 位，中间一律遮蔽
-    print(f"{OK} 已配置 ZHIPU_API_KEY ({key[:4]}…{key[-4:]})")
+    print(f"{OK} 模型后端 zhipu（key {key[:4]}…{key[-4:]}）")
     return True
 
 
