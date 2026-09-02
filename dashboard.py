@@ -218,6 +218,93 @@ def api_search():
     return jsonify(results)
 
 
+@app.route("/api/storage")
+def api_storage():
+    """按日期列出占用，图片和文本分开算。
+
+    分开是有意义的：图片占 99.9%，文本占 0.1%。
+    看板上把这两个数并排放，删的时候才知道该删哪个 ——
+    删图片省下几乎全部空间，而「那天我在干什么」照样答得上来。
+    """
+    import purge
+
+    shots, reports, db_path = purge._dirs()
+    rows = []
+    for name in sorted({d.name for base in (shots, reports)
+                        if base.exists() for d in base.iterdir() if d.is_dir()}):
+        s_dir, r_dir = shots / name, reports / name
+        img = txt = 0
+        for f in (s_dir.rglob("*") if s_dir.exists() else []):
+            if not f.is_file():
+                continue
+            if f.suffix in (".png", ".jpg"):
+                img += f.stat().st_size
+            else:
+                txt += f.stat().st_size
+        rows.append({
+            "date": name,
+            "images": img,
+            "text": txt,
+            "reports": purge._size(r_dir),
+            "has_report": r_dir.exists(),
+        })
+
+    backups = [{"name": b.name, "size": purge._size(b)}
+               for b in sorted(SCRIPT_DIR.glob(".git.bak-*"))]
+
+    import shutil as _sh
+    free = _sh.disk_usage(str(SCRIPT_DIR)).free
+    cfg = load_config().get("capture", {})
+    return jsonify({
+        "rows": rows,
+        "total": sum(r["images"] + r["text"] + r["reports"] for r in rows),
+        "vectors": purge._size(db_path),
+        "backups": backups,
+        "disk_free": free,
+        "max_disk_mb": cfg.get("max_disk_mb", 0),
+        "image_retention_days": cfg.get("image_retention_days", 0),
+    })
+
+
+@app.route("/api/purge", methods=["POST"])
+def api_purge():
+    """按日期删除。keep_text=true 时只删图片。
+
+    删除不可逆，所以要求前端显式带上日期，不接受「删全部」这种含糊指令。
+    """
+    import shutil as _sh
+    import purge
+
+    data = request.get_json(silent=True) or {}
+    dates = data.get("dates") or []
+    keep_text = bool(data.get("keep_text"))
+    if not dates:
+        return jsonify({"error": "没有指定日期"}), 400
+
+    shots, reports, db_path = purge._dirs()
+    freed, removed = 0, []
+    for date in dates:
+        s_dir = shots / date
+        if s_dir.exists():
+            if keep_text:
+                for f in list(s_dir.rglob("*")):
+                    if f.is_file() and f.suffix in (".png", ".jpg"):
+                        freed += f.stat().st_size
+                        f.unlink()
+            else:
+                freed += purge._size(s_dir)
+                _sh.rmtree(s_dir)
+        if not keep_text:
+            r_dir = reports / date
+            if r_dir.exists():
+                freed += purge._size(r_dir)
+                _sh.rmtree(r_dir)
+        removed.append(date)
+
+    vectors = 0 if keep_text else purge.purge_vectors(db_path, dates, dry_run=False)
+    return jsonify({"ok": True, "dates": removed, "freed": freed, "vectors": vectors})
+
+
 @app.route("/api/control/start", methods=["POST"])
 def api_start():
     subprocess.Popen(

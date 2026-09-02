@@ -22,7 +22,9 @@ function initMenu() {
             items.forEach(i => i.classList.remove("active"));
             li.classList.add("active");
             currentType = li.dataset.type;
-            if (currentType === "" || currentType === "hourly") {
+            if (currentType === "storage") {
+                loadStorage();
+            } else if (currentType === "" || currentType === "hourly") {
                 loadTimeline();
             } else {
                 loadReportsList();
@@ -618,3 +620,95 @@ document.addEventListener("DOMContentLoaded", async () => {
     await loadStatus();
     await loadTimeline();
 });
+
+
+// --- 存储管理 ---
+// 图片和文本分开显示是有意义的：实测图片占 99.9%、文本占 0.1%。
+// 只删图片能省下几乎全部空间，而「那天我在干什么」照样答得上来 ——
+// 把这两个数并排放，人才知道该删哪个。
+function fmtSize(n) {
+    if (!n) return "—";
+    const u = ["B", "KB", "MB", "GB"];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return n.toFixed(i >= 2 ? 1 : 0) + " " + u[i];
+}
+
+let storageData = null;
+
+async function loadStorage() {
+    const timeline = document.getElementById("timeline-view");
+    const content = document.getElementById("content-view");
+    document.getElementById("content-title").textContent = "存储管理";
+    document.getElementById("date-selector").innerHTML = "";
+    timeline.innerHTML = '<div class="loading">读取中…</div>';
+
+    storageData = await api("/api/storage");
+    const d = storageData;
+
+    let html = '<div class="storage-summary">';
+    html += `<div class="stat"><span>已用</span><b>${fmtSize(d.total)}</b></div>`;
+    html += `<div class="stat"><span>磁盘可用</span><b>${fmtSize(d.disk_free)}</b></div>`;
+    if (d.max_disk_mb) {
+        const pct = Math.min(100, d.total / (d.max_disk_mb * 1024 * 1024) * 100);
+        html += `<div class="stat"><span>上限 ${d.max_disk_mb} MB</span><b>${pct.toFixed(0)}%</b></div>`;
+        html += `<div class="bar"><i style="width:${pct}%"></i></div>`;
+    }
+    html += "</div>";
+
+    html += '<table class="storage-table"><thead><tr>' +
+            "<th><input type=\"checkbox\" id=\"st-all\"></th><th>日期</th>" +
+            "<th>图片</th><th>文本</th><th>报告</th></tr></thead><tbody>";
+    for (const r of d.rows) {
+        html += `<tr><td><input type="checkbox" class="st-pick" value="${r.date}"></td>` +
+                `<td>${r.date}</td><td>${fmtSize(r.images)}</td>` +
+                `<td>${fmtSize(r.text)}</td>` +
+                `<td>${r.has_report ? fmtSize(r.reports) : "—"}</td></tr>`;
+    }
+    html += "</tbody></table>";
+    timeline.innerHTML = html;
+
+    document.getElementById("st-all").addEventListener("change", (e) => {
+        document.querySelectorAll(".st-pick").forEach(c => c.checked = e.target.checked);
+    });
+
+    let side = "<h4>删除</h4>";
+    side += '<p class="hint">先在左边勾选日期。删除不可逆。</p>';
+    side += '<button id="st-del-img" class="danger-soft">只删图片，保留文本</button>';
+    side += '<p class="hint">省下几乎全部空间。报告和检索照常可用，' +
+            '只是不能再翻原始画面。</p>';
+    side += '<button id="st-del-all" class="danger">全部删除</button>';
+    side += '<p class="hint">截图、文本、报告、向量索引一起删。这些日期将不再可检索。</p>';
+
+    if (d.backups.length) {
+        side += "<hr><h4>备份目录</h4>";
+        side += '<p class="hint">重建 git 历史时留下的，里面可能有旧截图。' +
+                '看板不会动它，要删请在终端执行：</p>';
+        for (const b of d.backups) {
+            side += `<pre class="cmd">rm -rf ${b.name}</pre>` +
+                    `<p class="hint">${fmtSize(b.size)}</p>`;
+        }
+    }
+    content.innerHTML = side;
+
+    const picked = () => [...document.querySelectorAll(".st-pick:checked")].map(c => c.value);
+
+    document.getElementById("st-del-img").addEventListener("click", () => doPurge(picked(), true));
+    document.getElementById("st-del-all").addEventListener("click", () => doPurge(picked(), false));
+}
+
+async function doPurge(dates, keepText) {
+    if (!dates.length) { alert("请先勾选日期"); return; }
+    const what = keepText ? "图片（保留文本与报告）" : "全部数据（含报告与向量索引）";
+    if (!confirm(`将删除 ${dates.length} 天的${what}：\n\n${dates.join("、")}\n\n此操作不可撤销，继续？`)) return;
+
+    const res = await fetch("/api/purge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dates, keep_text: keepText }),
+    }).then(r => r.json());
+
+    if (res.error) { alert("失败：" + res.error); return; }
+    alert(`已释放 ${fmtSize(res.freed)}` + (res.vectors ? `，清除向量 ${res.vectors} 条` : ""));
+    loadStorage();
+}

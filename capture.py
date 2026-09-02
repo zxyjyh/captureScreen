@@ -346,6 +346,90 @@ def capture_screenshot(
     print(f"[{now.strftime('%H:%M:%S')}] {app_name} | {title[:40]} | ax={ax_chars}字{screen}{more}{why}")
 
 
+IMAGE_SUFFIXES = (".png", ".jpg")
+# 文本类产物：无障碍树、OCR 缓存、元数据。这些才是「记忆」本身。
+TEXT_SUFFIXES = (".txt", ".ocr", ".meta")
+
+
+def _dir_bytes(path: Path) -> int:
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def drop_images(output_dir: Path, keep_days: int) -> int:
+    """删掉超过 keep_days 的图片，保留同名的文本。
+
+    实测这批数据里图片占 99.9%，文本占 0.1% —— 文本是图片的 1/841。
+    图片一旦被抽成文本，剩下的用途只有人工翻看；
+    而「上个月某天我在干什么」这种问题，文本答得了，图片答不了更多。
+    磁盘紧张时先砍图片，是唯一不牺牲记忆能力的砍法。
+    0 表示不删。
+    """
+    if not keep_days or not output_dir.exists():
+        return 0
+    cutoff = datetime.now() - timedelta(days=keep_days)
+    freed = 0
+    for date_dir in sorted(output_dir.iterdir()):
+        if not date_dir.is_dir():
+            continue
+        try:
+            if datetime.strptime(date_dir.name, "%Y-%m-%d") >= cutoff:
+                continue
+        except ValueError:
+            continue
+        for f in date_dir.iterdir():
+            if f.suffix in IMAGE_SUFFIXES:
+                freed += f.stat().st_size
+                f.unlink()
+    if freed:
+        print(f"已清理旧图片，释放 {freed / 1024 / 1024:.0f} MB（文本保留）")
+    return freed
+
+
+def enforce_disk_budget(output_dir: Path, max_mb: int) -> int:
+    """把占用压到上限以内。先删最旧的图片，还不够才删最旧的文本。
+
+    有这个才敢在小硬盘的机器上装：不管跑多久，占用不会越过这条线。
+    保留期是「多久之前的删掉」，这个是「最多用这么多」—— 后者才是
+    磁盘紧张时真正需要的保证。
+    0 表示不限制。
+    """
+    if not max_mb or not output_dir.exists():
+        return 0
+    limit = max_mb * 1024 * 1024
+    used = _dir_bytes(output_dir)
+    if used <= limit:
+        return 0
+
+    # 先图片后文本，各自从旧到新
+    images, texts = [], []
+    for f in output_dir.rglob("*"):
+        if not f.is_file():
+            continue
+        (images if f.suffix in IMAGE_SUFFIXES else texts).append(f)
+    images.sort(key=lambda f: f.name)
+    images.sort(key=lambda f: f.parent.name)
+    texts.sort(key=lambda f: f.name)
+    texts.sort(key=lambda f: f.parent.name)
+
+    freed = 0
+    for f in images + texts:
+        if used - freed <= limit:
+            break
+        try:
+            freed += f.stat().st_size
+            f.unlink()
+        except OSError:
+            pass
+
+    # 清掉空掉的日期目录
+    for d in output_dir.iterdir():
+        if d.is_dir() and not any(d.iterdir()):
+            d.rmdir()
+
+    print(f"超出磁盘上限 {max_mb} MB，已释放 {freed / 1024 / 1024:.0f} MB")
+    return freed
+
+
 def cleanup_old_reports(report_dir: Path, retention_days: int):
     """按保留期删过期报告。
 
@@ -611,8 +695,16 @@ def main():
 
     image_config = capture_config.get("image", {})
     capture_screenshot(output_dir, privacy_config, idle_skip, capture_all, "启动", image_config)
-    cleanup_old_screenshots(output_dir, report_dir, retention_days)
-    cleanup_old_reports(report_dir, report_retention)
+    image_days = capture_config.get("image_retention_days", 0)
+    max_disk_mb = capture_config.get("max_disk_mb", 0)
+
+    def housekeeping():
+        cleanup_old_screenshots(output_dir, report_dir, retention_days)
+        drop_images(output_dir, image_days)
+        enforce_disk_budget(output_dir, max_disk_mb)
+        cleanup_old_reports(report_dir, report_retention)
+
+    housekeeping()
     run_hourly_analysis(output_dir, report_dir)
 
     if mode == "interval":
@@ -620,8 +712,7 @@ def main():
             capture_screenshot, output_dir, privacy_config, idle_skip, capture_all,
             "定时", image_config
         )
-    schedule.every(1).hours.do(cleanup_old_screenshots, output_dir, report_dir, retention_days)
-    schedule.every(1).hours.do(cleanup_old_reports, report_dir, report_retention)
+    schedule.every(1).hours.do(housekeeping)
     # 按整点触发而不是「每隔一小时」：后者从进程启动计时，重启就漂移
     schedule.every().hour.at(":05").do(run_hourly_analysis, output_dir, report_dir)
 
