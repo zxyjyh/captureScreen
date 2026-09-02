@@ -238,16 +238,34 @@ def looks_blank(screenshot: Path) -> bool:
         return False
 
 
-def build_text_context(screenshots: list[Path]) -> tuple[str, dict[str, int]]:
-    """把关键帧拼成给模型的文本上下文，并统计各来源占比。"""
+def is_local_only(app: str, local_only_apps: list[str]) -> bool:
+    """这个应用的内容是否只许留在本机、不许发给模型。"""
+    low = (app or "").lower()
+    return any(k.lower() in low for k in local_only_apps)
+
+
+def build_text_context(
+    screenshots: list[Path], local_only_apps: list[str] | None = None
+) -> tuple[str, dict[str, int]]:
+    """把关键帧拼成给模型的文本上下文，并统计各来源占比。
+
+    local_only_apps 里的应用会被整帧排除 —— 文件照常留在本地、
+    search_screen 照样搜得到（那些工具不联网），只是不进入出网的上下文。
+    控制点放在这里而不是采集端：数据一直在本机不构成泄漏，
+    真正的风险是把公司内部内容发给第三方模型。
+    """
+    local_only_apps = local_only_apps or []
     blocks: list[str] = []
     stats: dict[str, int] = {}
     for ss in screenshots:
+        meta = read_meta(ss)
+        if is_local_only(meta.get("app", ""), local_only_apps):
+            stats["local-only"] = stats.get("local-only", 0) + 1
+            continue
         text, source = frame_text(ss)
         stats[source] = stats.get(source, 0) + 1
         if not text:
             continue
-        meta = read_meta(ss)
         # 标出副屏，否则同一时刻两块屏的内容会被当成用户先后做的两件事
         d = display_of(ss)
         where = "" if d == "s1" else f" [副屏{d[1:]}]"
@@ -391,7 +409,23 @@ def ai_analyze_text(context: str, model: str, times: str = "") -> str:
     return response.choices[0].message.content
 
 
-def assemble_report(hour: int, timeline: list[dict], allocation: dict[str, int], ai_content: str) -> str:
+def _withheld_note(n: int) -> str:
+    """报告里明说扣下了几帧。不说的话就是静默缺失，
+    读报告的人会以为那段时间什么都没发生。"""
+    if not n:
+        return ""
+    return (f"\n---\n\n> 另有 {n} 帧来自仅本地应用，未发送给模型，"
+            f"因此不在上面的内容里。\n> 它们仍留在本机，"
+            f"可用 search_screen / timeline 检索（这两个工具不联网）。\n")
+
+
+def assemble_report(
+    hour: int,
+    timeline: list[dict],
+    allocation: dict[str, int],
+    ai_content: str,
+    withheld: int = 0,
+) -> str:
     """代码组装报告：时间线和统计由代码生成，内容描述由 AI 生成"""
     return f"""# {hour:02d}:00 - {hour:02d}:59 活动报告
 
@@ -403,7 +437,7 @@ def assemble_report(hour: int, timeline: list[dict], allocation: dict[str, int],
 
 ## 具体内容
 {ai_content}
-"""
+{_withheld_note(withheld)}"""
 
 
 # ==================== 主流程 ====================
@@ -447,24 +481,40 @@ def main():
     print(f"AI analyzing {len(key_frames)} key frames...")
     analysis_mode = config.get("analysis", {}).get("mode", "text")
     if analysis_mode == "text":
-        context, sources = build_text_context(key_frames)
+        local_only = config.get("privacy", {}).get("local_only_apps", []) or []
+        context, sources = build_text_context(key_frames, local_only)
         print(f"Text context: {len(context)} chars, sources={sources}")
         if len(context) >= _MIN_USEFUL_CHARS:
             ai_content = ai_analyze_text(context, text_model, allowed_times(key_frames))
         else:
             # 抽不到文字有两种：屏幕上本来就没东西（锁屏、黑屏），
             # 或者有画面但都是图。只有后者值得花钱走多模态。
-            visible = [f for f in key_frames if not looks_blank(f)]
+            # 多模态发的是原图，所以 local_only 的帧在这条路上更要挡住。
+            visible = [
+                f for f in key_frames
+                if not looks_blank(f)
+                and not is_local_only(read_meta(f).get("app", ""), local_only)
+            ]
             if not visible:
                 print("屏幕无内容（锁屏或黑屏），不生成报告")
                 sys.exit(0)
             print(f"文字太少，{len(visible)}/{len(key_frames)} 帧有画面，退回多模态")
             ai_content = ai_analyze_images(visible, model)
     else:
-        ai_content = ai_analyze_images(key_frames, model)
+        local_only = config.get("privacy", {}).get("local_only_apps", []) or []
+        sendable = [
+            f for f in key_frames
+            if not is_local_only(read_meta(f).get("app", ""), local_only)
+        ]
+        if not sendable:
+            print("本时段全部来自仅本地应用，不生成报告")
+            sys.exit(0)
+        ai_content = ai_analyze_images(sendable, model)
 
     # 4. 代码：组装报告
-    report = assemble_report(target_hour, timeline, allocation, ai_content)
+    report = assemble_report(
+        target_hour, timeline, allocation, ai_content, sources.get("local-only", 0)
+    )
 
     output_dir = report_dir / date_str
     output_dir.mkdir(parents=True, exist_ok=True)
