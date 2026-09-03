@@ -83,26 +83,39 @@ h3 {
     border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
-    padding: 18px 12px 16px;
-    gap: 18px;
+    padding: 0 0 16px;
     overflow: hidden;
 }
 
-#brand {
+/* 三列的表头是同一条横带：同样的高度、顶边距和字号，
+   下边框才连得成一条通栏的线。原来三列各写各的
+   （18 / 22 / 24px 顶边距，15 / 15 / 18px 字号），看着就是参差的。 */
+#brand,
+#timeline-header,
+#content-header {
+    height: 56px;
+    box-sizing: border-box;
+    padding: 0 18px;
     display: flex;
     align-items: center;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+}
+
+#brand {
     gap: 9px;
-    padding: 0 6px;
     font-size: 15px;
     font-weight: 600;
     letter-spacing: -.1px;
     color: var(--ink);
+    padding-left: 14px;
 }
 
 #brand svg { width: 18px; height: 18px; color: var(--accent); flex-shrink: 0; }
 
 /* 搜索提到导航之前：它是这个工具最高频的动作 */
 #search-box {
+    margin: 16px 12px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -128,7 +141,7 @@ h3 {
 #search-input:focus { outline: none; }
 #search-box:focus-within { outline: 1.5px solid var(--accent-b); }
 
-nav { display: flex; flex-direction: column; gap: 6px; }
+nav { display: flex; flex-direction: column; gap: 6px; padding: 0 12px; }
 
 .nav-group {
     font-size: 11px;
@@ -164,7 +177,7 @@ nav { display: flex; flex-direction: column; gap: 6px; }
 .nav-group-item { margin-top: 14px; }
 
 #status-area {
-    margin-top: auto;
+    margin: auto 12px 0;
     font-size: 11.5px;
     color: var(--ink-3);
     line-height: 1.7;
@@ -195,7 +208,7 @@ nav { display: flex; flex-direction: column; gap: 6px; }
     flex-shrink: 0;
 }
 
-#control-area { display: flex; flex-direction: column; gap: 6px; }
+#control-area { display: flex; flex-direction: column; gap: 6px; padding: 0 12px; }
 
 #control-area button {
     padding: 8px;
@@ -226,18 +239,19 @@ nav { display: flex; flex-direction: column; gap: 6px; }
 
 /* ==================== 中列：时间线 ==================== */
 #timeline-column {
-    width: 252px;
-    min-width: 252px;
+    width: 288px;
+    min-width: 288px;
     background: var(--surface);
     border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
 }
 
-#timeline-header { padding: 22px 18px 13px; border-bottom: 1px solid var(--line-soft); }
-#timeline-header h3 { margin-bottom: 12px; font-size: 15px; color: var(--ink); font-weight: 600; letter-spacing: -.1px; }
+#timeline-header { justify-content: space-between; }
+#timeline-header h3 { margin: 0; font-size: 15px; color: var(--ink); font-weight: 600; letter-spacing: -.1px; }
 
-#date-selector { display: flex; gap: 6px; flex-wrap: wrap; }
+#date-selector { display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 18px 0; }
+#date-selector:empty { padding: 0; }
 
 #date-selector button {
     padding: 5px 12px;
@@ -314,12 +328,10 @@ nav { display: flex; flex-direction: column; gap: 6px; }
     flex-direction: column;
 }
 
-#content-header {
-    padding: 24px 30px 16px;
-    border-bottom: 1px solid var(--line);
-}
+#content-header { padding: 0 30px; }
 
-#content-title { font-size: 18px; color: var(--ink); font-weight: 600; letter-spacing: -.3px; margin: 0; }
+/* 和另外两列的表头同字号 —— 它是列标题，不是页面主标题 */
+#content-title { font-size: 15px; color: var(--ink); font-weight: 600; letter-spacing: -.1px; margin: 0; }
 
 #content-view {
     flex: 1;

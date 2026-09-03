@@ -280,7 +280,16 @@ def generate_monthly(year: int, month: int):
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{year}-{month:02d}.md"
     body = _strip_title(response.choices[0].message.content)
-    output_file.write_text(f"# {year}-{month:02d} 月总结\n\n{body}\n")
+    # 时长按月内实际有数据的日期聚合，不从周报的文字里推 ——
+    # 周报里的百分比是上一层算出来的，再算一遍会丢精度
+    days = sorted(
+        d.name for d in report_dir.iterdir()
+        if d.is_dir() and d.name.startswith(f"{year}-{month:02d}-")
+    )
+    by_task, by_kind, by_app = _span_allocation(days)
+    alloc = (_fmt_alloc("任务分配", by_task) + _fmt_alloc("工作性质", by_kind)
+             + _fmt_alloc("时间分配", by_app))
+    output_file.write_text(f"# {year}-{month:02d} 月总结\n{alloc}\n{body}\n")
     print(f"Monthly summary saved to {output_file}")
 
 

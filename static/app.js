@@ -480,8 +480,8 @@ async function loadReportsList() {
         empty.className = "hint";
         empty.style.padding = "0 22px";
         empty.textContent = currentType === "daily"
-            ? "还没有日总结。每天 23:50 自动生成，也可以现在手动跑一次。"
-            : "还没有报告。周报和月报只在点击时生成。";
+            ? "还没有日录。每天 23:50 自动生成，也可以现在手动跑一次。"
+            : "还没有记录。周录和月录只在需要时生成。";
         view.appendChild(empty);
         document.getElementById("content-view").innerHTML = "";
         return;
@@ -495,7 +495,7 @@ async function loadReportsList() {
         item.className = "tl-item" + (i === 0 ? " active" : "");
         // label 本身就是「2026-09-02 日总结」，类型再写一遍是重复；
         // 左边菜单也已经选中了「日总结」，这一列只需要回答「哪一天」
-        const typeWord = { daily: "日总结", weekly: "周报", monthly: "月报" }[r.type] || "";
+        const typeWord = { daily: "日总结", weekly: "周总结", monthly: "月总结" }[r.type] || "";
         const when = typeWord ? r.label.replace(typeWord, "").trim() : r.label;
         item.innerHTML = `<div class="tl-time">${when || r.label}</div>`;
         item.addEventListener("click", () => {
@@ -1043,16 +1043,16 @@ function buildGenerator(type) {
 
     let fields = "", label = "";
     if (type === "daily") {
-        label = "日总结";
+        label = "日录";
         fields = `<input type="date" id="gen-date" value="${iso(today)}" max="${iso(today)}">`;
     } else if (type === "weekly") {
-        label = "周报";
+        label = "周录";
         const from = new Date(today); from.setDate(from.getDate() - 6);
         fields = `<input type="date" id="gen-start" value="${iso(from)}" max="${iso(today)}">
                   <span class="gen-sep">至</span>
                   <input type="date" id="gen-end" value="${iso(today)}" max="${iso(today)}">`;
     } else if (type === "monthly") {
-        label = "月报";
+        label = "月录";
         fields = `<input type="month" id="gen-month" value="${iso(today).slice(0, 7)}">`;
     } else {
         return null;
