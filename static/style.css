@@ -629,3 +629,109 @@ pre.cmd {
 
 .gen-btn:hover { background: var(--accent-b); }
 .gen-btn:disabled { opacity: .6; cursor: default; }
+
+/* ==================== 时间分配：环形图 ==================== */
+.alloc {
+    display: flex;
+    align-items: center;
+    gap: 26px;
+    flex-wrap: wrap;
+}
+
+.alloc-donut { width: 140px; height: 140px; flex-shrink: 0; }
+
+.alloc-total {
+    text-anchor: middle;
+    font-size: 22px;
+    font-weight: 600;
+    fill: var(--ink);
+    letter-spacing: -.5px;
+}
+
+.alloc-unit { text-anchor: middle; font-size: 10px; fill: var(--ink-3); }
+
+.alloc-legend {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.alloc-item {
+    display: grid;
+    grid-template-columns: 9px minmax(0, 1fr) 46px 40px;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+}
+
+.alloc-item i { width: 9px; height: 9px; border-radius: 2.5px; }
+
+.alloc-app {
+    color: var(--ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.alloc-min { text-align: right; color: var(--ink); }
+.alloc-pct { text-align: right; color: var(--ink-3); font-size: 12px; }
+
+/* ==================== 活动流：时间线 ==================== */
+/* 时间独占一列并等宽对齐，竖线把一小时串成一条 —— 报告是按时间读的，
+   让眼睛沿着一条线往下走，比一堆平级列表项好定位。 */
+.flow { display: flex; flex-direction: column; }
+
+.flow-item {
+    display: grid;
+    grid-template-columns: 46px 13px minmax(0, 1fr);
+    gap: 0 12px;
+    position: relative;
+    padding-bottom: 18px;
+}
+
+.flow-item:last-child { padding-bottom: 0; }
+
+.flow-time {
+    font-size: 12.5px;
+    color: var(--ink-3);
+    text-align: right;
+    padding-top: 1px;
+}
+
+.flow-dot { position: relative; }
+
+.flow-dot::before {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 5px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+}
+
+/* 竖线连到下一条；最后一条不画，免得悬空 */
+.flow-item:not(:last-child) .flow-dot::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 15px;
+    bottom: -18px;
+    width: 1px;
+    background: var(--line);
+}
+
+.flow-head {
+    font-size: 13.5px;
+    color: var(--ink);
+    line-height: 1.6;
+    margin-bottom: 4px;
+}
+
+.flow-body { min-width: 0; }
+.flow-body p { margin-bottom: 6px; }
+.flow-body ul { margin-bottom: 6px; }
+.flow-body .ai-section { padding: 0; background: none; box-shadow: none; margin: 0; }

@@ -270,7 +270,7 @@ async function showReport(report) {
     if (report.activityFlow) {
         html += `<div class="ai-section">
             <h2>活动流</h2>
-            ${renderMarkdownInline(report.activityFlow)}
+            ${renderActivityFlow(report.activityFlow)}
         </div>`;
     }
 
@@ -302,7 +302,7 @@ async function showReport(report) {
     if (report.allocation) {
         html += `<div class="ai-section">
             <h2>时间分配</h2>
-            ${renderMarkdownInline(report.allocation)}
+            ${renderAllocation(report.allocation)}
         </div>`;
     }
 
@@ -754,4 +754,109 @@ async function analyzeHour(date, hour, btn) {
         btn.textContent = original;
         btn.disabled = false;
     }
+}
+
+
+// --- 时间分配：环形图 ---
+// 用环形而不是实心饼：中间那块空白可以放总时长，而且比较扇形角度时
+// 人眼靠的是弧长，实心的圆心区域反而干扰判断。
+function renderAllocation(md) {
+    const rows = [];
+    for (const line of (md || "").split("\n")) {
+        const m = line.match(/^\s*[-*]\s*(.+?)\s*[:：]\s*(\d+)\s*分钟/);
+        if (m) rows.push({ app: m[1].trim(), min: parseInt(m[2], 10) });
+    }
+    if (!rows.length) return renderMarkdownInline(md);
+
+    rows.sort((a, b) => b.min - a.min);
+    const total = rows.reduce((a, r) => a + r.min, 0) || 1;
+
+    // 尾巴合并成「其他」：七八个 2% 的扇形谁也看不清，只会把图挤花
+    const MAIN = 6, MIN_PCT = 3;
+    const main = [], tail = [];
+    rows.forEach((r, i) => ((i < MAIN && r.min / total * 100 >= MIN_PCT) ? main : tail).push(r));
+    if (tail.length) {
+        const sum = tail.reduce((a, r) => a + r.min, 0);
+        if (sum) main.push({ app: `其他 ${tail.length} 项`, min: sum, isTail: true });
+    }
+
+    const R = 54, W = 22, C = 2 * Math.PI * R;
+    let offset = 0;
+    let arcs = "", legend = "";
+    main.forEach((r, i) => {
+        const pct = r.min / total;
+        const len = pct * C;
+        const color = r.isTail ? "var(--line)" : COLORS[i % COLORS.length];
+        // -90deg 让第一段从 12 点开始，符合读钟表的直觉
+        arcs += `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${color}"
+                   stroke-width="${W}" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}"
+                   stroke-dashoffset="${(-offset).toFixed(2)}"
+                   transform="rotate(-90 70 70)"><title>${r.app} ${r.min}分钟</title></circle>`;
+        offset += len;
+        legend += `<div class="alloc-item">
+            <i style="background:${color}"></i>
+            <span class="alloc-app">${r.app}</span>
+            <span class="alloc-min num">${r.min}</span>
+            <span class="alloc-pct num">${Math.round(pct * 100)}%</span>
+        </div>`;
+    });
+
+    return `<div class="alloc">
+        <svg class="alloc-donut" viewBox="0 0 140 140" role="img" aria-label="时间分配">
+            ${arcs}
+            <text x="70" y="66" class="alloc-total num">${total}</text>
+            <text x="70" y="84" class="alloc-unit">分钟</text>
+        </svg>
+        <div class="alloc-legend">${legend}</div>
+    </div>`;
+}
+
+// --- 活动流：时间线 ---
+// 模型给的时间写法不统一（**09:59｜应用**、[10:03]、09:59–10:00 都出现过），
+// 统一抽出每条开头的第一个 HH:MM 当锚点，抽不到就退回原样渲染。
+function renderActivityFlow(md) {
+    const text = (md || "").trim();
+    if (!text) return "";
+
+    // 按「以时间开头的条目」切段
+    const chunks = [];
+    let cur = null;
+    for (const raw of text.split("\n")) {
+        const line = raw.replace(/\s+$/, "");
+        const m = line.match(/^\s*(?:[-*]\s*)?(?:\*\*)?\[?(\d{1,2}:\d{2})/);
+        if (m) {
+            if (cur) chunks.push(cur);
+            cur = { time: m[1], head: "", body: [] };
+            // 去掉时间本身和常见分隔符，剩下的当这一条的标题
+            let rest = line.slice(line.indexOf(m[1]) + m[1].length)
+                           .replace(/^[\]）)｜|：:—–\-\s]+/, "");
+            cur.head = rest;
+        } else if (cur) {
+            cur.body.push(line);
+        } else if (line.trim()) {
+            chunks.push({ time: "", head: line, body: [] });
+        }
+    }
+    if (cur) chunks.push(cur);
+    if (!chunks.some(c => c.time)) return renderMarkdownInline(md);
+
+    const items = chunks.map(c => {
+        const head = renderInline(c.head);
+        const body = c.body.join("\n").trim();
+        return `<div class="flow-item">
+            <div class="flow-time num">${c.time}</div>
+            <div class="flow-dot"></div>
+            <div class="flow-body">
+                ${head ? `<div class="flow-head">${head}</div>` : ""}
+                ${body ? renderMarkdownInline(body) : ""}
+            </div>
+        </div>`;
+    }).join("");
+    return `<div class="flow">${items}</div>`;
+}
+
+function renderInline(t) {
+    return (t || "")
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
