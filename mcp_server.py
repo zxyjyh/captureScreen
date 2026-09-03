@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""拾遗的 MCP server —— 把工作记忆暴露给 AI agent。
+"""拾穗的 MCP server —— 把工作记忆暴露给 AI agent。
 
 为什么要这一层：看板要主动打开才会用，而人不会主动打开。
 接成 MCP 之后，「上周那个 40164 报错我怎么解的」可以在 Claude Code 里

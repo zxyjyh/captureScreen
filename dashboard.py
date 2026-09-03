@@ -1,4 +1,4 @@
-"""拾遗的看板"""
+"""拾穗的看板"""
 
 import json
 import os

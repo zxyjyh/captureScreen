@@ -1,5 +1,5 @@
 #!/bin/bash
-# 查看拾遗状态
+# 查看拾穗状态
 DIR="$(cd "$(dirname "$0")" && pwd)"
 LABEL="com.gleaner.agent"
 

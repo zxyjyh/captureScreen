@@ -1,5 +1,5 @@
 #!/bin/bash
-# 拾遗 · Gleaner 安装脚本 —— 从零到跑起来
+# 拾穗 · Gleaner 安装脚本 —— 从零到跑起来
 #
 # 这个脚本刻意不做的事：不把 API key 写进 LaunchAgent plist。
 # plist 只描述「怎么跑」，凭证只存在于 .env（已被 .gitignore）。
