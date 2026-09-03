@@ -627,12 +627,11 @@ async function loadStorage() {
 
     const images = d.rows.reduce((a, r) => a + r.images, 0);
     const text = d.rows.reduce((a, r) => a + r.text, 0);
-    const imgPct = images + text ? (images / (images + text) * 100) : 0;
     const capPct = d.max_disk_mb ? Math.min(100, d.total / (d.max_disk_mb * 1024 * 1024) * 100) : 0;
 
     // 概览用卡，逐条数据用表：卡片一眼看总量，表格同屏放得下更多天
     let main = '<div class="metric-grid">';
-    main += metric("图片", images, `占总量 ${imgPct.toFixed(1)}% · 可随时删`);
+    main += metric("图片", images, "");
     main += metric("文本", text, "记忆本体 · 长期保留", true);
     main += d.max_disk_mb
         ? `<div class="metric"><div class="metric-label">磁盘上限</div>` +
