@@ -356,8 +356,12 @@ def api_summarize():
         code, msg = _run([str(SCRIPT_DIR / "summarize.py"), "--date", date_str])
         label = f"{date_str} 日总结"
     elif kind == "weekly":
+        # 允许任意区间，不只是「最近 7 天」—— 补一份两周前的周报是常见需求
         end = datetime.strptime(data["end"], "%Y-%m-%d") if data.get("end") else today
-        start = end - timedelta(days=6)
+        start = (datetime.strptime(data["start"], "%Y-%m-%d") if data.get("start")
+                 else end - timedelta(days=6))
+        if start > end:
+            start, end = end, start
         code, msg = _run([str(SCRIPT_DIR / "period_summary.py"), "--weekly",
                           start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")])
         label = f"{start:%m-%d} 至 {end:%m-%d} 周报"

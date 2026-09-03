@@ -470,15 +470,10 @@ async function loadReportsList() {
     view.innerHTML = "";
     document.getElementById("date-selector").innerHTML = "";
 
-    // 周报月报不自动生成，日总结每天一次自动跑 —— 这里给个手动补跑的入口
-    const label = { daily: "日总结", weekly: "本周周报", monthly: "本月月报" }[currentType];
-    if (label) {
-        const gen = document.createElement("button");
-        gen.className = "gen-btn";
-        gen.textContent = `生成${label}`;
-        gen.addEventListener("click", () => runSummary(currentType, gen, label));
-        view.appendChild(gen);
-    }
+    // 周报月报不自动生成，日总结每天一次自动跑 —— 这里给个手动补跑的入口。
+    // 三种都能指定范围：补一份两周前的周报是常见需求，不该只能生成「本周」
+    const gen = buildGenerator(currentType);
+    if (gen) view.appendChild(gen);
 
     if (reports.length === 0) {
         const empty = document.createElement("p");
@@ -777,7 +772,7 @@ async function doPurge(dates, keepText) {
 // --- 按需生成 ---
 // 小时报告不再自动分析：每小时一次模型调用，而绝大多数小时没人会看。
 // 要看哪个小时就点哪个。周报月报同理。
-async function runSummary(kind, btn, label) {
+async function runSummary(kind, btn, label, range) {
     const original = btn.textContent;
     btn.textContent = "生成中…";
     btn.disabled = true;
@@ -785,7 +780,7 @@ async function runSummary(kind, btn, label) {
         const res = await fetch("/api/control/summarize", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ kind }),
+            body: JSON.stringify({ kind, ...(range || {}) }),
         }).then(r => r.json());
         if (!res.ok) { alert(`${label}生成失败：${res.message || "未知错误"}`); return; }
         btn.textContent = "✓ 已生成";
@@ -1034,4 +1029,49 @@ const SECTION_ORDER = [
 function sectionRank(name) {
     const i = SECTION_ORDER.findIndex(s => name.includes(s));
     return i < 0 ? SECTION_ORDER.length : i;
+}
+
+
+// --- 按需生成：范围选择 ---
+// 三种周期共用一套外壳，只是选择器不同。默认值给最近一个完整周期，
+// 想补历史就自己改日期。
+function buildGenerator(type) {
+    const today = new Date();
+    const iso = d => d.toISOString().slice(0, 10);
+    const box = document.createElement("div");
+    box.className = "gen-box";
+
+    let fields = "", label = "";
+    if (type === "daily") {
+        label = "日总结";
+        fields = `<input type="date" id="gen-date" value="${iso(today)}" max="${iso(today)}">`;
+    } else if (type === "weekly") {
+        label = "周报";
+        const from = new Date(today); from.setDate(from.getDate() - 6);
+        fields = `<input type="date" id="gen-start" value="${iso(from)}" max="${iso(today)}">
+                  <span class="gen-sep">至</span>
+                  <input type="date" id="gen-end" value="${iso(today)}" max="${iso(today)}">`;
+    } else if (type === "monthly") {
+        label = "月报";
+        fields = `<input type="month" id="gen-month" value="${iso(today).slice(0, 7)}">`;
+    } else {
+        return null;
+    }
+
+    box.innerHTML = `<div class="gen-fields">${fields}</div>
+                     <button class="gen-btn">生成${label}</button>`;
+    box.querySelector(".gen-btn").addEventListener("click", e =>
+        runSummary(type, e.target, label, collectRange(type)));
+    return box;
+}
+
+function collectRange(type) {
+    const val = id => document.getElementById(id)?.value || "";
+    if (type === "daily") return { date: val("gen-date") };
+    if (type === "weekly") return { start: val("gen-start"), end: val("gen-end") };
+    if (type === "monthly") {
+        const [year, month] = val("gen-month").split("-");
+        return { year, month };
+    }
+    return {};
 }
