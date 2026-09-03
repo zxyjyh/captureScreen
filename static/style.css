@@ -372,10 +372,34 @@ nav { display: flex; flex-direction: column; gap: 6px; }
     line-height: 1.75;
 }
 
-#content-view h1 { font-size: 19px; margin-bottom: 16px; font-weight: 600; letter-spacing: -.3px; }
-#content-view h2 { font-size: 11px; color: var(--ink-3); margin: 22px 0 12px; font-weight: 400; letter-spacing: .8px; }
-#content-view h3 { font-size: 13px; color: var(--ink-2); margin-bottom: 8px; font-weight: 600; letter-spacing: 0; }
-#content-view h4 { font-size: 13px; color: var(--ink-2); margin-bottom: 6px; }
+/* 报告里的小节标题（活动流 / 时间分配 / 关键事实）是读者扫视时的锚点，
+   原来是 11px 灰色小标签，和正文几乎分不开。给足字号和字重，
+   并靠上方留白划出段落边界 —— 一条条分隔线在长报告里会显得碎。 */
+#content-view h1 { font-size: 20px; margin-bottom: 18px; font-weight: 600; letter-spacing: -.35px; }
+
+#content-view h2 {
+    font-size: 16px;
+    color: var(--ink);
+    font-weight: 600;
+    letter-spacing: -.2px;
+    margin: 26px 0 12px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line-soft);
+}
+
+/* 第一个小节顶上不需要分隔线和额外留白 */
+#content-view h2:first-child,
+#content-view h1 + h2 { margin-top: 0; padding-top: 0; border-top: none; }
+
+#content-view h3 {
+    font-size: 14px;
+    color: var(--ink);
+    font-weight: 600;
+    letter-spacing: -.1px;
+    margin: 18px 0 8px;
+}
+
+#content-view h4 { font-size: 13.5px; color: var(--ink-2); font-weight: 600; margin: 14px 0 6px; }
 #content-view ul { padding-left: 18px; margin-bottom: 12px; }
 #content-view li { margin-bottom: 7px; font-size: 13.5px; }
 #content-view p { margin-bottom: 11px; font-size: 13.5px; }
@@ -399,7 +423,12 @@ nav { display: flex; flex-direction: column; gap: 6px; }
     box-shadow: var(--shadow-2);
 }
 
-.ai-section h2 { margin-top: 0; }
+.ai-section > h1:first-child,
+.ai-section > h2:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
 
 /* ==================== 截图区域 ==================== */
 .screenshots-toggle {

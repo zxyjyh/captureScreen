@@ -140,6 +140,19 @@ def ai_daily(context: str, model: str, provider: str, api_key: str) -> str:
     return r.choices[0].message.content
 
 
+def _strip_title(text: str) -> str:
+    """剥掉模型自己加的一级标题。
+
+    prompt 要求从「## 这一天做了什么」开始，但模型常常先补一行
+    「# 2026-09-02 工作记录」。报告框架已经有标题了，留着就是两个 h1，
+    小节标题一放大这个重复更刺眼。
+    """
+    lines = text.lstrip().splitlines()
+    while lines and (not lines[0].strip() or lines[0].startswith("# ")):
+        lines.pop(0)
+    return "\n".join(lines).strip()
+
+
 def day_allocation(screenshot_dir: Path, date_str: str) -> dict[str, int]:
     """全天的应用时长，由代码统计 —— 不交给模型，它算不准也没必要算。"""
     total: dict[str, int] = {}
@@ -173,7 +186,7 @@ def summarize_day(date_str: str) -> Path | None:
     import os
     key = os.environ.get("ZHIPUAI_API_KEY") or os.environ.get("ZHIPU_API_KEY", "")
     r = llm.redactor()
-    ai_content = r.restore(ai_daily(context, model, provider, key))
+    ai_content = _strip_title(r.restore(ai_daily(context, model, provider, key)))
 
     alloc = day_allocation(screenshot_dir, date_str)
     total_min = sum(alloc.values())

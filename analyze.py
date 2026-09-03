@@ -467,6 +467,14 @@ def _withheld_note(n: int) -> str:
             f"可用 search_screen / timeline 检索（这两个工具不联网）。\n")
 
 
+def strip_title(text: str) -> str:
+    """剥掉模型自己加的一级标题 —— 报告框架已经有标题，留着就是两个 h1。"""
+    lines = text.lstrip().splitlines()
+    while lines and (not lines[0].strip() or lines[0].startswith("# ")):
+        lines.pop(0)
+    return "\n".join(lines).strip()
+
+
 def assemble_report(
     hour: int,
     timeline: list[dict],
@@ -562,9 +570,9 @@ def main():
             r = llm.redactor()
             if r.term_count:
                 print(f"脱敏: {r.term_count} 个术语")
-            ai_content = r.restore(
+            ai_content = strip_title(r.restore(
                 ai_analyze_text(context, text_model, allowed_times(key_frames))
-            )
+            ))
         else:
             # 抽不到文字有两种：屏幕上本来就没东西（锁屏、黑屏），
             # 或者有画面但都是图。只有后者值得花钱走多模态。
@@ -579,7 +587,7 @@ def main():
                 mark_skipped(report_dir, date_str, target_hour, "屏幕无内容")
                 sys.exit(0)
             print(f"文字太少，{len(visible)}/{len(key_frames)} 帧有画面，退回多模态")
-            ai_content = ai_analyze_images(visible, model)
+            ai_content = strip_title(ai_analyze_images(visible, model))
     else:
         local_only = config.get("privacy", {}).get("local_only_apps", []) or []
         sendable = [
@@ -590,7 +598,7 @@ def main():
             print("本时段全部来自仅本地应用，不生成报告")
             mark_skipped(report_dir, date_str, target_hour, "全部为仅本地应用")
             sys.exit(0)
-        ai_content = ai_analyze_images(sendable, model)
+        ai_content = strip_title(ai_analyze_images(sendable, model))
 
     # 4. 代码：组装报告
     report = assemble_report(
