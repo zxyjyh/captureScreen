@@ -30,15 +30,15 @@ function initMenu() {
                 currentType === "storage" ? "none" : "";
             if (currentType === "storage") {
                 loadStorage();
-            } else if (currentType === "" || currentType === "hourly") {
+            } else if (currentType === "hourly") {
                 loadTimeline();
             } else {
                 loadReportsList();
             }
         });
     });
-    items[1].classList.add("active");
-    items[0].classList.remove("active");
+    // 按 data-type 定位，不按下标 —— 菜单增删项时下标会错位
+    items.forEach(i => i.classList.toggle("active", i.dataset.type === "hourly"));
     currentType = "hourly";
 }
 

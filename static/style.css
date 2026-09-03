@@ -72,7 +72,10 @@ h3 {
 
 .loading { padding: 24px; color: var(--ink-3); font-size: 13px; }
 
-/* ==================== 左列：菜单 ==================== */
+/* ==================== 左列：菜单 ====================
+   原来是三条 <hr> 把 224px 切成四段，六个平级菜单项混着报告类型和管理功能。
+   现在靠间距和分组标签分层，一条分隔线都不用 —— 224px 宽的栏放不下四个区块。
+*/
 #menu-column {
     width: 224px;
     min-width: 224px;
@@ -80,20 +83,75 @@ h3 {
     border-right: 1px solid var(--line);
     display: flex;
     flex-direction: column;
-    padding: 20px 14px;
-    gap: 20px;
+    padding: 18px 12px 16px;
+    gap: 18px;
+    overflow: hidden;
+}
+
+#brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 6px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -.1px;
+    color: var(--ink);
+}
+
+#brand svg { width: 18px; height: 18px; color: var(--accent); flex-shrink: 0; }
+
+/* 搜索提到导航之前：它是这个工具最高频的动作 */
+#search-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--inset);
+    border-radius: var(--r-xs);
+}
+
+#search-box svg { width: 14px; height: 14px; color: var(--ink-3); flex-shrink: 0; }
+
+#search-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: none;
+    color: var(--ink);
+    font-size: 12.5px;
+    line-height: 18px;
+    padding: 0;
+}
+
+#search-input::placeholder { color: var(--ink-3); }
+#search-input:focus { outline: none; }
+#search-box:focus-within { outline: 1.5px solid var(--accent-b); }
+
+nav { display: flex; flex-direction: column; gap: 6px; }
+
+.nav-group {
+    font-size: 11px;
+    letter-spacing: .8px;
+    color: var(--ink-3);
+    padding: 0 8px;
 }
 
 #menu-list { list-style: none; display: flex; flex-direction: column; gap: 1px; }
 
 #menu-list li {
+    display: flex;
+    align-items: center;
+    gap: 9px;
     padding: 7px 8px;
     cursor: pointer;
     border-radius: var(--r-xs);
     color: var(--ink-2);
+    font-size: 13.5px;
     transition: background .12s;
 }
 
+#menu-list li svg { width: 15px; height: 15px; flex-shrink: 0; }
 #menu-list li:hover { background: var(--inset); }
 
 #menu-list li.active {
@@ -102,31 +160,47 @@ h3 {
     font-weight: 500;
 }
 
-hr { border: none; border-top: 1px solid var(--line-soft); margin: 0; }
+/* 「存储」是管理类，和上面四个报告不同类，用间距隔开而不是分隔线 */
+.nav-group-item { margin-top: 14px; }
 
-#search-box { display: flex; }
-
-#search-input {
-    flex: 1;
-    min-width: 0;
-    padding: 6px 10px;
-    border: none;
-    border-radius: var(--r-xs);
-    background: var(--inset);
-    color: var(--ink);
-    font-size: 12.5px;
-    line-height: 18px;
+#status-area {
+    margin-top: auto;
+    font-size: 11.5px;
+    color: var(--ink-3);
+    line-height: 1.7;
+    padding: 0 2px;
 }
 
-#search-input::placeholder { color: var(--ink-3); }
-#search-input:focus { outline: 1.5px solid var(--accent-b); }
+#status-area .running,
+#status-area .stopped {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--r-xs);
+    font-size: 12.5px;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+#status-area .running { background: var(--ok-l); color: var(--ok); }
+#status-area .stopped { background: var(--inset); color: var(--ink-2); }
+
+#status-area .running::before,
+#status-area .stopped::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
 
 #control-area { display: flex; flex-direction: column; gap: 6px; }
 
 #control-area button {
     padding: 8px;
     border: none;
-    border-radius: var(--r-s);
+    border-radius: var(--r-xs);
     cursor: pointer;
     font-size: 12.5px;
     font-weight: 500;
@@ -138,49 +212,17 @@ hr { border: none; border-top: 1px solid var(--line-soft); margin: 0; }
 #control-area button:hover { background: var(--line); }
 
 #btn-start { background: var(--ok-l); color: var(--ok); }
-#btn-stop  { background: var(--danger-l); color: var(--danger); }
-#btn-analyze { background: var(--accent-l); color: var(--accent); }
+#btn-stop  { background: var(--inset); color: var(--ink-2); }
 
-#status-area {
-    margin-top: auto;
-    font-size: 11.5px;
+/* 分析是另一类动作（花钱、要等），和启停不同权，做次要样式 */
+#control-area button.secondary {
+    background: none;
     color: var(--ink-3);
-    line-height: 1.75;
+    font-weight: 400;
+    font-size: 12px;
 }
 
-/* 采集中的状态条 */
-#status-area .running {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 11px;
-    background: var(--ok-l);
-    border-radius: var(--r-s);
-    color: var(--ok);
-    font-size: 13px;
-    font-weight: 500;
-    margin-bottom: 10px;
-}
-
-#status-area .running::before {
-    content: "";
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--ok);
-    flex-shrink: 0;
-}
-
-#status-area .stopped {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 11px;
-    background: var(--inset);
-    border-radius: var(--r-s);
-    color: var(--ink-2);
-    font-size: 13px;
-    margin-bottom: 10px;
-}
+#control-area button.secondary:hover { background: var(--inset); color: var(--ink-2); }
 
 /* ==================== 中列：时间线 ==================== */
 #timeline-column {
