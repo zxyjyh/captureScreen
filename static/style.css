@@ -430,6 +430,11 @@ nav { display: flex; flex-direction: column; gap: 6px; }
     border-top: none;
 }
 
+/* 通用工具类。原来只定义在 .modal.hidden 里，
+   删掉标注弹窗时被一起删了 —— 截图折叠一直在加减这个 class，
+   规则没了就变成永远展开，点击看起来毫无反应。 */
+.hidden { display: none !important; }
+
 /* ==================== 截图区域 ==================== */
 .screenshots-toggle {
     padding: 9px 13px;

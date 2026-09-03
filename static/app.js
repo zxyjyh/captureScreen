@@ -262,7 +262,7 @@ async function showReport(report) {
 
     // Screenshots section (collapsed by default)
     html += `<div id="screenshots-area" data-date="${report.date}" data-hour="${report.hour}">
-        <div class="screenshots-toggle" onclick="toggleScreenshots()">▶ 查看截图（点击展开）</div>
+        <div class="screenshots-toggle" onclick="toggleScreenshots()">▶ 查看截图</div>
         <div id="screenshots-content" class="hidden"></div>
     </div>`;
 
@@ -356,8 +356,13 @@ async function loadScreenshots(date, hour) {
         html += '</div>';
         content.innerHTML = html;
         // Update toggle text with count
+        // 只改数量，别动箭头 —— 这个函数是展开之后才跑的，
+        // 整句覆写会把刚翻过来的 ▼ 又写回 ▶
         const toggle = document.querySelector(".screenshots-toggle");
-        if (toggle) toggle.textContent = `▶ 查看截图（${shots.length}张，点击展开）`;
+        if (toggle) {
+            const open = !document.getElementById("screenshots-content").classList.contains("hidden");
+            toggle.textContent = `${open ? "▼" : "▶"} 截图 ${shots.length} 张`;
+        }
     } catch (e) {
         content.innerHTML = '';
     }
@@ -367,17 +372,15 @@ function toggleScreenshots() {
     const content = document.getElementById("screenshots-content");
     const toggle = document.querySelector(".screenshots-toggle");
     if (!content) return;
-    if (content.classList.contains("hidden")) {
-        content.classList.remove("hidden");
-        toggle.textContent = toggle.textContent.replace("▶", "▼");
-        // Load screenshots on first expand
+    const open = content.classList.contains("hidden");
+    content.classList.toggle("hidden", !open);
+    toggle.textContent = (open ? "▼" : "▶") + toggle.textContent.slice(1);
+    if (open) {
+        // 第一次展开才去加载
         const area = document.getElementById("screenshots-area");
         if (area && !content.innerHTML) {
             loadScreenshots(area.dataset.date, area.dataset.hour);
         }
-    } else {
-        content.classList.add("hidden");
-        toggle.textContent = toggle.textContent.replace("▼", "▶");
     }
 }
 
