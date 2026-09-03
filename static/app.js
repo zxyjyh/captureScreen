@@ -480,8 +480,8 @@ async function loadReportsList() {
         empty.className = "hint";
         empty.style.padding = "0 22px";
         empty.textContent = currentType === "daily"
-            ? "还没有日录。每天 23:50 自动生成，也可以现在手动跑一次。"
-            : "还没有记录。周录和月录只在需要时生成。";
+            ? "还没有日拾。每天 23:50 自动生成，也可以现在手动跑一次。"
+            : "还没有记录。周拾和月拾只在需要时生成。";
         view.appendChild(empty);
         document.getElementById("content-view").innerHTML = "";
         return;
@@ -1043,16 +1043,16 @@ function buildGenerator(type) {
 
     let fields = "", label = "";
     if (type === "daily") {
-        label = "日录";
+        label = "日拾";
         fields = `<input type="date" id="gen-date" value="${iso(today)}" max="${iso(today)}">`;
     } else if (type === "weekly") {
-        label = "周录";
+        label = "周拾";
         const from = new Date(today); from.setDate(from.getDate() - 6);
         fields = `<input type="date" id="gen-start" value="${iso(from)}" max="${iso(today)}">
                   <span class="gen-sep">至</span>
                   <input type="date" id="gen-end" value="${iso(today)}" max="${iso(today)}">`;
     } else if (type === "monthly") {
-        label = "月录";
+        label = "月拾";
         fields = `<input type="month" id="gen-month" value="${iso(today).slice(0, 7)}">`;
     } else {
         return null;
