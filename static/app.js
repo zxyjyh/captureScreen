@@ -104,22 +104,8 @@ function renderTimeline(reports) {
     if (Object.keys(allocation).length > 0) {
         const alloc = document.createElement("div");
         alloc.className = "tl-alloc";
-        alloc.innerHTML = "<h4>时间分配</h4>";
-        const total = Object.values(allocation).reduce((a, b) => a + b, 0);
-        Object.entries(allocation)
-            .sort((a, b) => b[1] - a[1])
-            .forEach(([app, mins], ci) => {
-                const pct = total > 0 ? Math.round(mins / total * 100) : 0;
-                const color = COLORS[ci % COLORS.length];
-                alloc.innerHTML += `
-                    <div class="tl-alloc-bar">
-                        <span class="tl-alloc-label">${app}</span>
-                        <div class="tl-alloc-track">
-                            <div class="tl-alloc-fill" style="width:${pct}%;background:${color}"></div>
-                        </div>
-                        <span class="tl-alloc-pct">${pct}%</span>
-                    </div>`;
-            });
+        const rows = Object.entries(allocation).map(([app, min]) => ({ app, min }));
+        alloc.innerHTML = "<h4>今日时间分配</h4>" + donutChart(rows, true);
         view.appendChild(alloc);
     }
 
@@ -161,23 +147,8 @@ async function loadReportMeta(report, container) {
     const alloc = buildAllocation(todayReports.filter(r => r.app));
     const allocEl = container.querySelector(".tl-alloc");
     if (allocEl && Object.keys(alloc).length > 0) {
-        const total = Object.values(alloc).reduce((a, b) => a + b, 0);
-        let html = "<h4>时间分配</h4>";
-        Object.entries(alloc)
-            .sort((a, b) => b[1] - a[1])
-            .forEach(([app, mins], ci) => {
-                const pct = total > 0 ? Math.round(mins / total * 100) : 0;
-                const color = COLORS[ci % COLORS.length];
-                html += `
-                    <div class="tl-alloc-bar">
-                        <span class="tl-alloc-label">${app}</span>
-                        <div class="tl-alloc-track">
-                            <div class="tl-alloc-fill" style="width:${pct}%;background:${color}"></div>
-                        </div>
-                        <span class="tl-alloc-pct">${pct}%</span>
-                    </div>`;
-            });
-        allocEl.innerHTML = html;
+        const rows = Object.entries(alloc).map(([app, min]) => ({ app, min }));
+        allocEl.innerHTML = "<h4>今日时间分配</h4>" + donutChart(rows, true);
     }
 
     // Show first report's AI content
@@ -398,17 +369,61 @@ function renderAIContent(text) {
 
 function renderMarkdownInline(text) {
     if (!text) return '<p style="color:#555">暂无</p>';
-    let html = text
-        .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-        .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-        .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-        .replace(/^- (.+)$/gm, "<li>$1</li>")
-        .replace(/\n{2,}/g, "<br><br>")
-        .replace(/\n/g, "<br>");
-    html = html.replace(/((?:<li>.*?<\/li>(?:<br>)?)+)/g, "<ul>$1</ul>");
-    return html;
+    return renderBlocks(text);
 }
+
+// 按行的块级渲染。原来是一串正则：把所有换行换成 <br>，于是
+// 「**项目与主题**」单独一行也只是行内粗体，不是标题 —— 层级就是这样丢的。
+// 列表项之间还会插进多余的 <br>。
+function renderBlocks(text) {
+    const out = [];
+    let list = null;      // 当前列表的缓冲
+    let para = [];        // 当前段落的缓冲
+
+    const flushPara = () => {
+        if (para.length) { out.push(`<p>${para.join("<br>")}</p>`); para = []; }
+    };
+    const flushList = () => {
+        if (list) { out.push(`<${list.tag}>${list.items.join("")}</${list.tag}>`); list = null; }
+    };
+    const flush = () => { flushPara(); flushList(); };
+
+    for (const raw of (text || "").split("\n")) {
+        const line = raw.trim();
+        if (!line) { flush(); continue; }
+
+        let m;
+        if ((m = line.match(/^(#{1,4})\s+(.+)$/))) {
+            flush();
+            const lv = Math.min(m[1].length + 1, 4);   // 小节内的标题降一级
+            out.push(`<h${lv}>${inline(m[2])}</h${lv}>`);
+        } else if ((m = line.match(/^\*\*(.+?)\*\*[:：]?$/))) {
+            // 独占一行的加粗当小标题 —— 模型常用它分组，如「**项目与主题**」
+            flush();
+            out.push(`<h4>${inline(m[1])}</h4>`);
+        } else if ((m = line.match(/^[-*]\s+(.+)$/))) {
+            flushPara();
+            if (!list || list.tag !== "ul") { flushList(); list = { tag: "ul", items: [] }; }
+            list.items.push(`<li>${inline(m[1])}</li>`);
+        } else if ((m = line.match(/^\d+[.)]\s+(.+)$/))) {
+            flushPara();
+            if (!list || list.tag !== "ol") { flushList(); list = { tag: "ol", items: [] }; }
+            list.items.push(`<li>${inline(m[1])}</li>`);
+        } else {
+            flushList();
+            para.push(inline(line));
+        }
+    }
+    flush();
+    return out.join("");
+}
+
+function inline(t) {
+    return (t || "")
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
 
 // --- Load for other types (daily, weekly, monthly) ---
 async function loadReportsList() {
@@ -469,7 +484,8 @@ async function showFullReport(report) {
     title.textContent = report.label;
     // 标题栏已经显示了报告名，正文里的一级标题是第三次重复，剥掉
     const body = (data.content || "").replace(/^\s*#\s+[^\n]*\n+/, "");
-    document.getElementById("content-view").innerHTML = renderMarkdown(body);
+    document.getElementById("content-view").innerHTML = renderSections(body);
+    initAllocTabs();
 }
 
 function renderMarkdown(text) {
@@ -775,8 +791,13 @@ function renderAllocation(md) {
         if (m) rows.push({ app: m[1].trim(), min: parseInt(m[2], 10) });
     }
     if (!rows.length) return renderMarkdownInline(md);
+    return donutChart(rows);
+}
 
-    rows.sort((a, b) => b.min - a.min);
+// 环形图核心。报告里和时间线列底部共用同一套渲染 ——
+// 两处画同一种数据却长得不一样，读的人要重新学一遍怎么看。
+function donutChart(rows, compact) {
+    rows = rows.slice().sort((a, b) => b.min - a.min);
     const total = rows.reduce((a, r) => a + r.min, 0) || 1;
 
     // 尾巴合并成「其他」：七八个 2% 的扇形谁也看不清，只会把图挤花
@@ -809,7 +830,7 @@ function renderAllocation(md) {
         </div>`;
     });
 
-    return `<div class="alloc">
+    return `<div class="alloc${compact ? " alloc-compact" : ""}">
         <svg class="alloc-donut" viewBox="0 0 140 140" role="img" aria-label="时间分配">
             ${arcs}
             <text x="70" y="66" class="alloc-total num">${total}</text>
@@ -831,14 +852,24 @@ function renderActivityFlow(md) {
     let cur = null;
     for (const raw of text.split("\n")) {
         const line = raw.replace(/\s+$/, "");
-        const m = line.match(/^\s*(?:[-*]\s*)?(?:\*\*)?\[?(\d{1,2}:\d{2})/);
+        // 认三种起头：- 、1. / 1) 、直接以时间开头；时间可能是区间 09:59–10:00
+        const m = line.match(/^\s*(?:[-*]\s*|\d+[.)]\s*)?(?:\*\*)?\[?(\d{1,2}:\d{2})/);
         if (m) {
             if (cur) chunks.push(cur);
             cur = { time: m[1], head: "", body: [] };
-            // 去掉时间本身和常见分隔符，剩下的当这一条的标题
-            let rest = line.slice(line.indexOf(m[1]) + m[1].length)
-                           .replace(/^[\]）)｜|：:—–\-\s]+/, "");
-            cur.head = rest;
+            let rest = line.slice(line.indexOf(m[1]) + m[1].length);
+            // 区间的后半段（–10:00）也去掉，时间列只显示起点
+            rest = rest.replace(/^\s*[–—~-]\s*\d{1,2}:\d{2}/, "")
+                       .replace(/^[\]）)｜|：:—–\-\s]+/, "");
+            // 「**标题**：正文」这种把标题和正文拆开 ——
+            // 合在一行会让每条都是一堵墙，扫不出重点
+            const split = rest.match(/^(.*?\*\*)\s*[：:]\s*([\s\S]+)$/);
+            if (split) {
+                cur.head = split[1];
+                cur.body.push(split[2]);
+            } else {
+                cur.head = rest;
+            }
         } else if (cur) {
             cur.body.push(line);
         } else if (line.trim()) {
@@ -882,4 +913,67 @@ function initAllocTabs() {
                 p.classList.toggle("hidden", p.dataset.dim !== btn.dataset.dim));
         });
     });
+}
+
+
+// --- 完整报告：按小节分派渲染 ---
+// 原来整篇丢给 renderMarkdown，它把换行统统换成 <br>、不解析编号列表，
+// 于是日总结塌成一大坨。现在每个 ## 单独成卡，按小节名选渲染方式。
+function renderSections(md) {
+    const text = (md || "").trim();
+    if (!text) return "<p>无内容</p>";
+
+    const parts = text.split(/^##\s+/m).filter(x => x.trim());
+    if (parts.length < 2) return renderMarkdown(text);
+
+    // 时间的三个维度合成一张带标签页的卡，不各占一块
+    const dims = [];
+    const cards = [];
+    for (const part of parts) {
+        const nl = part.indexOf("\n");
+        const name = (nl < 0 ? part : part.slice(0, nl)).trim();
+        const body = (nl < 0 ? "" : part.slice(nl + 1)).trim();
+        if (!body) continue;
+
+        if (name === "任务分配") { dims.push(["任务", body]); continue; }
+        if (name === "工作性质") { dims.push(["工作性质", body]); continue; }
+        if (name === "时间分配") { dims.push(["应用", body]); continue; }
+        // 「具体内容」只是个容器，它下面的小节才是内容
+        if (name === "具体内容") { cards.push(...splitInner(body)); continue; }
+        cards.push([name, body]);
+    }
+
+    let html = "";
+    if (dims.length) {
+        // 任务放第一个 —— 它回答「做了哪个项目」，比「用了什么应用」有用
+        dims.sort((a, b) => ["任务", "工作性质", "应用"].indexOf(a[0])
+                          - ["任务", "工作性质", "应用"].indexOf(b[0]));
+        html += `<div class="ai-section"><h2>时间分配</h2>
+            <div class="alloc-tabs">${dims.map(([n], i) =>
+                `<button class="alloc-tab${i ? "" : " active"}" data-dim="${i}">${n}</button>`).join("")}</div>
+            ${dims.map(([, v], i) =>
+                `<div class="alloc-pane${i ? " hidden" : ""}" data-dim="${i}">${renderAllocation(v)}</div>`).join("")}
+        </div>`;
+    }
+    for (const [name, body] of cards) {
+        html += `<div class="ai-section"><h2>${name}</h2>${renderSectionBody(name, body)}</div>`;
+    }
+    return html || renderMarkdown(text);
+}
+
+function splitInner(body) {
+    const parts = body.split(/^##\s+/m).filter(x => x.trim());
+    if (parts.length < 2 && !/^##\s/m.test(body)) return [["具体内容", body]];
+    return parts.map(part => {
+        const nl = part.indexOf("\n");
+        return [(nl < 0 ? part : part.slice(0, nl)).trim(),
+                (nl < 0 ? "" : part.slice(nl + 1)).trim()];
+    }).filter(([, b]) => b);
+}
+
+function renderSectionBody(name, body) {
+    // 带时间的小节走时间线：日总结的「这一天做了什么」和小时报告的
+    // 「活动流」是同一种东西，不该长得不一样
+    if (/(活动流|这一天做了什么|活动时间线)/.test(name)) return renderActivityFlow(body);
+    return renderMarkdownInline(body);
 }
