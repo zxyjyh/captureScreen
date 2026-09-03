@@ -28,3 +28,4 @@ deletions.log
 index.db
 index.db-wal
 index.db-shm
+tasks.local.yaml

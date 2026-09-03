@@ -147,6 +147,8 @@ async function loadReportMeta(report, container) {
     report.aiContent = parsed.aiContent;
     report.timeline = parsed.timeline;
     report.allocation = parsed.allocation;
+    report.taskAlloc = parsed.taskAlloc;
+    report.kindAlloc = parsed.kindAlloc;
     report.activityFlow = parsed.activityFlow;
     report.articleSummary = parsed.articleSummary;
     report.keyContent = parsed.keyContent;
@@ -206,6 +208,10 @@ function parseReport(text) {
     const minutesMatch = allocation.match(/(\d+)分钟/);
     const minutes = minutesMatch ? parseInt(minutesMatch[1]) : 0;
 
+    // 任务与工作性质 —— 按应用统计回答不了「花在哪个项目上多少时间」
+    const taskAlloc = (text.match(/## 任务分配\n([\s\S]*?)(?=\n##|$)/) || [])[1]?.trim() || "";
+    const kindAlloc = (text.match(/## 工作性质\n([\s\S]*?)(?=\n##|$)/) || [])[1]?.trim() || "";
+
     // Extract subsections by ### headings (inside 具体内容) or ## headings (top level)
     const activityFlow = extractSection(text, "活动流");
     const articleSummary = extractSection(text, "文章内容总结");
@@ -220,7 +226,7 @@ function parseReport(text) {
         ? [activityFlow, articleSummary, keyContent, intentAnalysis].filter(Boolean).join("\n\n")
         : (text.match(/## 具体内容\n([\s\S]*)/)?.[1]?.trim() || "");
 
-    return { app, title, minutes, aiContent, timeline, allocation, activityFlow, articleSummary, keyContent, intentAnalysis, highlights, improvements, suggestions };
+    return { app, title, minutes, aiContent, timeline, allocation, taskAlloc, kindAlloc, activityFlow, articleSummary, keyContent, intentAnalysis, highlights, improvements, suggestions };
 }
 
 function extractSection(text, sectionName) {
@@ -288,11 +294,21 @@ async function showReport(report) {
         </div>`;
     }
 
-    // Section 4: 时间分配
-    if (report.allocation) {
+    // Section 4: 时间分配 —— 三个维度并列
+    // 应用回答「用了什么」，任务回答「做了哪个项目」，性质回答「做的哪类事」。
+    // 只有第一个是原来就有的，而它恰恰是三个里最不重要的。
+    const dims = [
+        ["任务", report.taskAlloc],
+        ["工作性质", report.kindAlloc],
+        ["应用", report.allocation],
+    ].filter(([, v]) => v);
+    if (dims.length) {
         html += `<div class="ai-section">
             <h2>时间分配</h2>
-            ${renderAllocation(report.allocation)}
+            <div class="alloc-tabs">${dims.map(([n], i) =>
+                `<button class="alloc-tab${i ? "" : " active"}" data-dim="${i}">${n}</button>`).join("")}</div>
+            ${dims.map(([, v], i) =>
+                `<div class="alloc-pane${i ? " hidden" : ""}" data-dim="${i}">${renderAllocation(v)}</div>`).join("")}
         </div>`;
     }
 
@@ -318,6 +334,7 @@ async function showReport(report) {
     }
 
     view.innerHTML = html;
+    initAllocTabs();
     loadScreenshots(report.date, report.hour);
 }
 
@@ -849,4 +866,19 @@ function renderInline(t) {
     return (t || "")
         .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
         .replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+
+// 三个维度切换。用标签页而不是三张图并排：一屏放三个环形图谁也看不清，
+// 而且大多数时候你只想看其中一个。
+function initAllocTabs() {
+    document.querySelectorAll(".alloc-tab").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const box = btn.closest(".ai-section");
+            box.querySelectorAll(".alloc-tab").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            box.querySelectorAll(".alloc-pane").forEach(p =>
+                p.classList.toggle("hidden", p.dataset.dim !== btn.dataset.dim));
+        });
+    });
 }

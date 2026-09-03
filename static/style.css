@@ -717,3 +717,26 @@ pre.cmd {
 .flow-body p { margin-bottom: 6px; }
 .flow-body ul { margin-bottom: 6px; }
 .flow-body .ai-section { padding: 0; background: none; box-shadow: none; margin: 0; }
+
+/* 时间分配的三个维度：应用 / 任务 / 工作性质。
+   用标签页而不是三张图并排 —— 一屏三个环形图谁也看不清，
+   而且大多数时候只想看其中一个。 */
+.alloc-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 18px;
+}
+
+.alloc-tab {
+    padding: 5px 12px;
+    border: none;
+    border-radius: var(--r-xs);
+    background: var(--inset);
+    color: var(--ink-2);
+    font-size: 12.5px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.alloc-tab:hover { background: var(--line); }
+.alloc-tab.active { background: var(--accent); color: #fff; font-weight: 500; }

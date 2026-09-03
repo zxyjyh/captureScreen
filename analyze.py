@@ -14,6 +14,7 @@ from PIL import Image
 import llm
 
 import ocr
+import tasks as task_cfg
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -475,12 +476,40 @@ def strip_title(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _task_allocation(date_str: str, hour: int) -> tuple[dict, dict]:
+    """按任务和工作性质统计。数据从索引取 —— 那里已经有正文，
+    不必再读一遍文件。索引不可用就跳过这两节，不影响报告主体。"""
+    try:
+        import store
+        db = store.connect()
+        rows = [dict(r) for r in db.execute(
+            "SELECT ts, app, title, text FROM frames"
+            " WHERE day=? AND substr(ts,1,2)=? ORDER BY ts",
+            (date_str, f"{hour:02d}"))]
+        db.close()
+        return task_cfg.allocate(rows) if rows else ({}, {})
+    except Exception as e:
+        print(f"任务统计跳过: {e}")
+        return {}, {}
+
+
+def _fmt_alloc(title: str, data: dict[str, int]) -> str:
+    if not data:
+        return ""
+    total = sum(data.values()) or 1
+    lines = [f"- {k}: {v}分钟 ({v * 100 // total}%)"
+             for k, v in sorted(data.items(), key=lambda x: -x[1])]
+    return f"\n## {title}\n" + "\n".join(lines) + "\n"
+
+
 def assemble_report(
     hour: int,
     timeline: list[dict],
     allocation: dict[str, int],
     ai_content: str,
     withheld: int = 0,
+    by_task: dict | None = None,
+    by_kind: dict | None = None,
 ) -> str:
     """代码组装报告：时间线和统计由代码生成，内容描述由 AI 生成"""
     return f"""# {hour:02d}:00 - {hour:02d}:59 活动报告
@@ -490,7 +519,7 @@ def assemble_report(
 
 ## 时间分配
 {format_allocation(allocation)}
-
+{_fmt_alloc("任务分配", by_task or {})}{_fmt_alloc("工作性质", by_kind or {})}
 ## 具体内容
 {ai_content}
 {_withheld_note(withheld)}"""
@@ -601,8 +630,10 @@ def main():
         ai_content = strip_title(ai_analyze_images(sendable, model))
 
     # 4. 代码：组装报告
+    by_task, by_kind = _task_allocation(date_str, target_hour)
     report = assemble_report(
-        target_hour, timeline, allocation, ai_content, sources.get("local-only", 0)
+        target_hour, timeline, allocation, ai_content, sources.get("local-only", 0),
+        by_task, by_kind,
     )
 
     output_dir = report_dir / date_str

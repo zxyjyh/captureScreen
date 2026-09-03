@@ -27,6 +27,7 @@ env_file.load()
 sys.path.insert(0, str(SCRIPT_DIR))
 import analyze  # noqa: E402
 import llm  # noqa: E402
+import tasks as task_cfg  # noqa: E402
 
 # 一天最多送多少帧的原始文本。小时级上限是 30，一天按 24 小时算不能简单
 # 相乘 —— 那会让一次日总结比全天分开跑还贵。
@@ -166,6 +167,28 @@ def day_allocation(screenshot_dir: Path, date_str: str) -> dict[str, int]:
     return total
 
 
+def _day_tasks(date_str: str) -> tuple[dict, dict]:
+    try:
+        import store
+        db = store.connect()
+        rows = [dict(r) for r in db.execute(
+            "SELECT ts, app, title, text FROM frames WHERE day=? ORDER BY ts", (date_str,))]
+        db.close()
+        return task_cfg.allocate(rows) if rows else ({}, {})
+    except Exception as e:
+        print(f"任务统计跳过: {e}")
+        return {}, {}
+
+
+def _fmt_alloc(title: str, data: dict[str, int]) -> str:
+    if not data:
+        return ""
+    total = sum(data.values()) or 1
+    lines = [f"- {k}: {v}分钟 ({v * 100 // total}%)"
+             for k, v in sorted(data.items(), key=lambda x: -x[1])]
+    return f"\n## {title}\n" + "\n".join(lines) + "\n"
+
+
 def summarize_day(date_str: str) -> Path | None:
     config = load_config()
     screenshot_dir = SCRIPT_DIR / config["capture"]["output_dir"]
@@ -193,12 +216,13 @@ def summarize_day(date_str: str) -> Path | None:
     lines = [f"- {app}: {m}分钟 ({m * 100 // max(total_min, 1)}%)"
              for app, m in sorted(alloc.items(), key=lambda x: -x[1])]
 
+    by_task, by_kind = _day_tasks(date_str)
     report = f"""# {date_str} 日总结
 
 ## 时间分配
 共 {total_min} 分钟
 {chr(10).join(lines) if lines else "- 无记录"}
-
+{_fmt_alloc("任务分配", by_task)}{_fmt_alloc("工作性质", by_kind)}
 ## 具体内容
 {ai_content}
 """
