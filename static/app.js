@@ -408,6 +408,11 @@ function renderBlocks(text) {
             // 独占一行的加粗当小标题 —— 模型常用它分组，如「**项目与主题**」
             flush();
             out.push(`<h4>${inline(m[1])}</h4>`);
+        } else if ((m = line.match(/^\*\*(.+?)\*\*\s*[—–:：]\s*(.+)$/))) {
+            // 「**1｜标题** — 一大段正文」：周报「主线」的写法。
+            // 不拆开的话标题就淹在正文里，整节看不出有几条
+            flush();
+            out.push(`<h4>${inline(m[1])}</h4><p>${inline(m[2])}</p>`);
         } else if ((m = line.match(/^[-*]\s+(.+)$/))) {
             flushPara();
             if (!list || list.tag !== "ul") { flushList(); list = { tag: "ul", items: [], sub: null }; }

@@ -800,3 +800,15 @@ pre.cmd {
 }
 
 #content-view .todo p { color: var(--ink-3); }
+
+/* 「主线」这类条目式小节：标题带编号（1｜、2｜），把编号做成视觉锚点，
+   一眼能数出有几条、每条从哪开始。正文缩进对齐标题文字，形成一列。 */
+#content-view h4 + p {
+    margin-left: 13px;
+    padding-left: 10px;
+    border-left: 1px solid var(--line);
+    color: var(--ink-2);
+    margin-bottom: 20px;
+}
+
+#content-view h4 + p:last-child { margin-bottom: 0; }
