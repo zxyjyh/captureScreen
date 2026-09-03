@@ -129,7 +129,7 @@ def main() -> int:
     scope.add_argument("--day", help="只删这一天，格式 2026-09-01")
     scope.add_argument("--before", help="删这一天之前的全部（不含这天）")
     scope.add_argument("--all", action="store_true", help="删全部屏幕数据")
-    ap.add_argument("--logs", action="store_true", help="连同日志与看板批注一起删")
+    ap.add_argument("--logs", action="store_true", help="连同运行日志一起删")
     ap.add_argument("--yes", action="store_true", help="真的执行。不加就只是看看")
     args = ap.parse_args()
 
@@ -184,7 +184,7 @@ def main() -> int:
     print(f"已删向量 {n_vec} 条")
 
     if args.logs:
-        for name in ("capture.log", "annotations.json"):
+        for name in ("capture.log",):
             f = SCRIPT_DIR / name
             if f.exists():
                 f.unlink()

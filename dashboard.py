@@ -14,7 +14,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 import env_file  # noqa: E402
 
 env_file.load()
-ANNOTATIONS_FILE = SCRIPT_DIR / "annotations.json"
 
 STATIC_DIR = str(SCRIPT_DIR / "static")
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
@@ -83,16 +82,6 @@ def scan_reports():
                 "path": str(mf.relative_to(SCRIPT_DIR)),
             })
     return reports
-
-
-def load_annotations():
-    if ANNOTATIONS_FILE.exists():
-        return json.loads(ANNOTATIONS_FILE.read_text())
-    return {}
-
-
-def save_annotations(data):
-    ANNOTATIONS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
 
 # --- API Routes ---
@@ -178,25 +167,6 @@ def api_screenshot_image():
         return send_from_directory(str(full_path.parent), filename, mimetype="image/png")
     return "Not found", 404
     return jsonify({"content": "报告不存在"}), 404
-
-
-@app.route("/api/annotations")
-def api_annotations():
-    return jsonify(load_annotations())
-
-
-@app.route("/api/annotations", methods=["POST"])
-def api_save_annotation():
-    data = request.json
-    date = data.get("date", "")
-    hour = data.get("hour", "")
-    annotation = data.get("annotation", {})
-    annotations = load_annotations()
-    if date not in annotations:
-        annotations[date] = {}
-    annotations[date][hour] = annotation
-    save_annotations(annotations)
-    return jsonify({"ok": True})
 
 
 @app.route("/api/search")

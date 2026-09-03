@@ -4,7 +4,6 @@ screenshots/
 # 报告是对屏幕活动的详细描述，同样是个人数据
 reports/
 # 看板批注
-annotations.json
 # 脱敏术语表：内含真实同事姓名与公司名
 redact.local.yaml
 # 向量库

@@ -3,7 +3,6 @@ let currentType = "hourly";
 let currentReport = null;
 let allReports = [];
 let todayReports = [];
-let annotations = {};
 let allDates = [];
 
 // 时间分配条：同一强调色的明度梯度，不是彩虹。
@@ -75,7 +74,6 @@ function renderTimeline(reports) {
     if (reports.length === 0) {
         view.innerHTML = '<p style="color:#555;padding:20px;">暂无报告</p>';
         document.getElementById("content-view").innerHTML = "";
-        updateAnnotationDisplay(null);
         return;
     }
 
@@ -331,7 +329,6 @@ async function showReport(report) {
 
     view.innerHTML = html;
     loadScreenshots(report.date, report.hour);
-    updateAnnotationDisplay(report);
 }
 
 async function loadScreenshots(date, hour) {
@@ -461,7 +458,6 @@ async function showFullReport(report) {
     const title = document.getElementById("content-title");
     title.textContent = report.label;
     document.getElementById("content-view").innerHTML = renderMarkdown(data.content);
-    updateAnnotationDisplay(report);
 }
 
 function renderMarkdown(text) {
@@ -581,57 +577,6 @@ function initSearch() {
     });
 }
 
-// --- Annotations ---
-async function loadAnnotations() {
-    annotations = await api("/api/annotations");
-}
-
-function updateAnnotationDisplay(report) {
-    const display = document.getElementById("annotation-display");
-    if (!report) { display.innerHTML = ""; return; }
-    const ann = annotations[report.date]?.[report.hour];
-    if (ann) {
-        const tags = (ann.tags || []).map(t => `<span class="tag">${t}</span>`).join("");
-        const statusIcon = { done: "✓", todo: "◎", none: "○" }[ann.status] || "○";
-        let html = `<span class="status-${ann.status}">${statusIcon} ${ann.status}</span>`;
-        if (tags) html += ` ${tags}`;
-        if (ann.note) html += ` 📝 ${ann.note}`;
-        display.innerHTML = html;
-    } else {
-        display.innerHTML = '<span style="color:#555">按"编辑标注"添加</span>';
-    }
-}
-
-function initAnnotations() {
-    document.getElementById("btn-annotate").addEventListener("click", () => {
-        if (!currentReport) return;
-        const ann = annotations[currentReport.date]?.[currentReport.hour] || {};
-        document.getElementById("ann-tags").value = (ann.tags || []).join(", ");
-        document.getElementById("ann-note").value = ann.note || "";
-        document.getElementById("ann-status").value = ann.status || "none";
-        document.getElementById("annotation-modal").classList.remove("hidden");
-    });
-
-    document.getElementById("ann-save").addEventListener("click", async () => {
-        if (!currentReport) return;
-        const tags = document.getElementById("ann-tags").value.split(",").map(t => t.trim()).filter(Boolean);
-        const note = document.getElementById("ann-note").value;
-        const status = document.getElementById("ann-status").value;
-        await api("/api/annotations", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ date: currentReport.date, hour: currentReport.hour, annotation: { tags, note, status } }),
-        });
-        await loadAnnotations();
-        updateAnnotationDisplay(currentReport);
-        document.getElementById("annotation-modal").classList.add("hidden");
-    });
-
-    document.getElementById("ann-cancel").addEventListener("click", () => {
-        document.getElementById("annotation-modal").classList.add("hidden");
-    });
-}
-
 // --- Auto-refresh ---
 setInterval(loadStatus, 30000);
 
@@ -640,8 +585,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     initMenu();
     initControls();
     initSearch();
-    initAnnotations();
-    await loadAnnotations();
     await loadStatus();
     await loadTimeline();
 });
