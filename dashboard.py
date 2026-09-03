@@ -304,6 +304,8 @@ def api_purge():
         removed.append(date)
 
     vectors = 0 if keep_text else purge.purge_vectors(db_path, dates, dry_run=False)
+    if not keep_text:
+        purge._forget_index(dates)
 
     import audit
     audit.record(

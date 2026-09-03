@@ -225,6 +225,23 @@ def check_data() -> bool:
                   f"删图可省 {img_mb * 1024 / (img_mb * 1024 + txt_kb) * 100:.1f}%")
     except Exception:
         pass
+
+    # 索引是加速层，不是数据 —— 落后了搜索会漏，但重建只要几秒
+    try:
+        import store
+        db = store.connect()
+        st = store.stats(db)
+        db.close()
+        stems = len({f.stem for f in shots.rglob("*")
+                     if f.suffix in (".txt", ".ocr", ".meta")})
+        size = store.DB_PATH.stat().st_size / 1024 / 1024 if store.DB_PATH.exists() else 0
+        if stems and st["frames"] < stems * 0.9:
+            print(f"    {WARN} 索引落后：{st['frames']}/{stems} 帧"
+                  f"（重建: {sys.executable} {SCRIPT_DIR / 'store.py'}）")
+        else:
+            print(f"    {OK} 检索索引：{st['frames']} 帧 / {st['chars'] // 1000}k 字 / {size:.1f} MB")
+    except Exception as e:
+        print(f"    {WARN} 索引不可用，搜索会退回逐文件扫描：{e}")
     return True
 
 

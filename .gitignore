@@ -26,3 +26,6 @@ venv/
 .git.bak-*
 .paused-until
 deletions.log
+index.db
+index.db-wal
+index.db-shm

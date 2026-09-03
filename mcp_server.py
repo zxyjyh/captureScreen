@@ -148,8 +148,34 @@ def search_screen(
     会进入对话、随之出网。确实需要时把 include_local_only 设成 True。
     """
     screenshot_dir, _ = _dirs()
-    needle = keyword.lower()
     apps = [] if include_local_only else _local_only_apps()
+
+    # 走 SQLite 索引；索引不在或出问题就退回 grep —— 文件才是根，
+    # 索引只是加速层，坏了不该让搜索整个不能用
+    try:
+        import store
+        db = store.connect()
+        if store.stats(db)["frames"]:
+            days = _date_range(days)
+            rows = store.search(db, keyword, days=days, apps_exclude=apps, limit=max_hits)
+            hidden = store.count_excluded(db, keyword, days, apps) if apps else 0
+            hits = []
+            needle = keyword.lower()
+            for r in rows:
+                stamp = f"{r['day']} {r['ts'].replace('-', ':')}"
+                if r["display"] != "active":
+                    stamp += f" [副屏{r['display'][1:]}]"
+                for line in (r["text"] or "").splitlines():
+                    if needle in line.lower():
+                        hits.append(f"[{stamp}] {line.strip()[:180]}")
+                        break
+            db.close()
+            return _format_hits(keyword, hits, truncated=len(rows) >= max_hits) + _hidden_note(hidden)
+        db.close()
+    except Exception as e:
+        print(f"索引不可用，退回 grep: {e}", file=sys.stderr)
+
+    needle = keyword.lower()
     hits = []
     hidden = 0
 

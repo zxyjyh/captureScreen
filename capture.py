@@ -80,6 +80,7 @@ from PIL import Image
 
 import accessibility
 import audit
+import store
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -308,6 +309,7 @@ def capture_screenshot(
 
     # 无障碍文本必须在截图的同一时刻抓 —— 界面变了就再也读不到了
     ax_chars = 0
+    ax_text = ""
     try:
         ax_text, _ = accessibility.capture_screen_text(pid)
         if ax_text:
@@ -323,6 +325,16 @@ def capture_screenshot(
     readable = bool(title) or ax_chars > 0 or active is not None
     label = app_name if readable else f"{app_name}(无可读窗口)"
     (date_dir / f"{filename}.meta").write_text(f"{label}\n{title}\npid={pid}")
+
+    # 顺手写索引。失败不影响采集 —— 文件才是根，索引随时能重建
+    try:
+        db = store.connect()
+        store.index_frame(db, date_dir.name, filename, label, title, ax_text or "",
+                          "accessibility" if ax_chars else "none")
+        db.commit()
+        db.close()
+    except Exception as e:
+        print(f"[{now.strftime('%H:%M:%S')}] 索引写入失败: {e}")
 
     # 副屏：前台应用只有一个，但副屏上往往开着另一个应用，
     # 那块屏上的内容同样是「用户当时看得见的东西」。
@@ -403,13 +415,26 @@ def backfill_ocr(output_dir: Path, limit: int = 40) -> int:
                 pending.append(f)
 
     done = 0
+    db = None
+    try:
+        db = store.connect()
+    except Exception:
+        pass
     for image in pending[:limit]:
         try:
             text = "\n".join(ocr_mod.recognize(str(image)))
             image.with_suffix(".ocr").write_text(text)
             done += 1
+            # 补出来的文本要进索引，否则搜不到
+            if db is not None:
+                app, title = store._read_meta(image.with_suffix(""))
+                full, src = store._read_text(image.with_suffix(""))
+                store.index_frame(db, image.parent.name, image.stem, app, title, full, src)
         except Exception as e:
             print(f"OCR 失败 {image.name}: {e}")
+    if db is not None:
+        db.commit()
+        db.close()
     if done:
         print(f"已补 OCR {done} 张（还欠 {max(0, len(pending) - done)} 张）")
     return done

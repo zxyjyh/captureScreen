@@ -79,6 +79,19 @@ def target_dates(shots: Path, reports: Path, args) -> list[str]:
     return dates  # 纯查看
 
 
+def _forget_index(dates: list[str]) -> None:
+    """数据删了索引必须跟着删，否则搜出来的是幽灵条目。"""
+    try:
+        import store
+        db = store.connect()
+        for d in dates:
+            store.forget_day(db, d)
+        db.commit()
+        db.close()
+    except Exception as e:
+        print(f"  ! 索引清理失败（可运行 python store.py 重建）：{e}")
+
+
 def purge_vectors(db_path: Path, dates: list[str], dry_run: bool) -> int:
     """删掉这些日期的向量。
 
