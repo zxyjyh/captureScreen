@@ -445,11 +445,11 @@ async function loadReportsList() {
     reports.forEach((r, i) => {
         const item = document.createElement("div");
         item.className = "tl-item" + (i === 0 ? " active" : "");
-        const typeLabel = { daily: "日总结", weekly: "周报", monthly: "月报" }[r.type] || "";
-        item.innerHTML = `
-            <div class="tl-time">${typeLabel}</div>
-            <div class="tl-app">${r.label}</div>
-        `;
+        // label 本身就是「2026-09-02 日总结」，类型再写一遍是重复；
+        // 左边菜单也已经选中了「日总结」，这一列只需要回答「哪一天」
+        const typeWord = { daily: "日总结", weekly: "周报", monthly: "月报" }[r.type] || "";
+        const when = typeWord ? r.label.replace(typeWord, "").trim() : r.label;
+        item.innerHTML = `<div class="tl-time">${when || r.label}</div>`;
         item.addEventListener("click", () => {
             container.querySelectorAll(".tl-item").forEach(el => el.classList.remove("active"));
             item.classList.add("active");
@@ -467,7 +467,9 @@ async function showFullReport(report) {
     const data = await api(`/api/report-content?path=${encodeURIComponent(report.path)}`);
     const title = document.getElementById("content-title");
     title.textContent = report.label;
-    document.getElementById("content-view").innerHTML = renderMarkdown(data.content);
+    // 标题栏已经显示了报告名，正文里的一级标题是第三次重复，剥掉
+    const body = (data.content || "").replace(/^\s*#\s+[^\n]*\n+/, "");
+    document.getElementById("content-view").innerHTML = renderMarkdown(body);
 }
 
 function renderMarkdown(text) {
