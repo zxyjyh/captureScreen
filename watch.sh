@@ -1,5 +1,5 @@
 #!/bin/bash
-# 实时监控拾穗状态，每 5 秒刷新
+# 实时监控拾遗状态，每 5 秒刷新
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 trap 'echo ""; echo "已退出"; exit 0' INT

@@ -1,7 +1,7 @@
-# 拾穗 · Gleaner
+# 拾遗.Gleaner
 
-> 米勒的画《拾穗者》：收割之后，三个人俯身在地里，
-> 捡起收割队漏下的麦穗。
+> 补阙拾遗——唐代的官职，职责是记录别人漏掉的事。
+> 英文 Gleaner 出自米勒的《拾穗者》：收割之后，捡起地里剩下的麦穗。
 >
 > **你的工作日就是那场收割，这个工具捡的是掉在地上的那部分。**
 
@@ -30,7 +30,7 @@
 只支持 macOS —— 无障碍树和 Vision OCR 都是系统能力，换平台要重写这两块。
 
 ```bash
-# 仓库名仍是 captureScreen（产品叫拾穗，仓库没跟着改）
+# 仓库名仍是 captureScreen（产品叫拾遗，仓库没跟着改）
 git clone https://github.com/zxyjyh/captureScreen.git gleaner
 cd gleaner
 bash install.sh

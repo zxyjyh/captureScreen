@@ -246,7 +246,7 @@ def check_data() -> bool:
 
 
 def main() -> int:
-    print(f"拾穗 · Gleaner 自检\n路径: {SCRIPT_DIR}\nPython: {sys.executable}\n")
+    print(f"拾遗.Gleaner 自检\n路径: {SCRIPT_DIR}\nPython: {sys.executable}\n")
     results = [
         check_deps(), check_screen_recording(), check_accessibility(),
         check_text_extraction(), check_api_key(), check_privacy(),
