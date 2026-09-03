@@ -88,7 +88,7 @@ function renderTimeline(reports) {
         // 这一列的职责是「选哪个小时」，不是展示内容
         const hh = String(r.hour).padStart(2, "0");
         const next = String((Number(r.hour) + 1) % 24).padStart(2, "0");
-        item.innerHTML = `<div class="tl-time">${hh}:00 ～ ${next}:00</div>`;
+        item.innerHTML = `<div class="tl-time">${hh}:00 - ${next}:00</div>`;
         item.addEventListener("click", () => {
             container.querySelectorAll(".tl-item").forEach(el => el.classList.remove("active"));
             item.classList.add("active");
