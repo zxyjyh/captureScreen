@@ -788,15 +788,18 @@ pre.cmd {
     line-height: 1.75;
 }
 
+/* 方框原来用 --accent-b (#dfe3f0)，对白底只有 1.28:1 对比度，
+   等于没画。非文字元素至少要 3:1 才认得出。 */
 #content-view .todo li::before {
     content: "";
     position: absolute;
     left: 0;
     top: 5px;
-    width: 13px;
-    height: 13px;
-    border: 1.5px solid var(--accent-b);
-    border-radius: 3px;
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid #8b93a2;
+    border-radius: 3.5px;
+    background: var(--surface);
 }
 
 #content-view .todo p { color: var(--ink-3); }

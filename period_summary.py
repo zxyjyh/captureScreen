@@ -2,7 +2,7 @@
 
 import argparse
 import os
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import yaml
@@ -194,7 +194,11 @@ def generate_weekly(start_date: str, end_date: str):
         messages=[{"role": "user", "content": f"{prompt}\n\n{combined}"}],
     )
 
-    year, week, _ = datetime.strptime(start_date, "%Y-%m-%d").isocalendar()
+    # 按实际有数据的日期定周编号，不按调用方给的 start_date。
+    # 原来用 start_date：传 08-28~09-03 时文件名是 W35（08-28 那周），
+    # 而内容全是 09-02~09-03（W36）—— 文件名和内容对不上，
+    # 月报按文件名找周报就永远找不到。
+    year, week, _ = datetime.strptime(found[-1], "%Y-%m-%d").isocalendar()
     output_dir = report_dir / "weekly"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{year}-W{week:02d}.md"
@@ -239,8 +243,13 @@ def generate_monthly(year: int, month: int):
                 parts = wf.stem.split("-W")
                 file_year = int(parts[0])
                 file_week = int(parts[1])
-                # 获取该周周一的日期
-                week_monday = datetime.strptime(f"{file_year}-{file_week}-1", "%Y-%%W-%w")
+                # 周报文件名是用 isocalendar() 生成的，这里必须用同一套口径。
+                # 原来写的是 strptime("%Y-%%W-%w")：%% 在格式串里是字面量 %，
+                # 根本匹配不上，异常又被 except 吞掉，于是一个周报都收不到。
+                # 就算修掉 %%，%W 和 ISO 周也差 7 天（ISO 第 35 周周一是
+                # 08-24，%W 第 35 周周一是 08-31）。
+                week_monday = datetime.combine(
+                    date.fromisocalendar(file_year, file_week, 1), time.min)
                 # 判断该周是否与本月有交集
                 week_sunday = week_monday + timedelta(days=6)
                 if week_monday <= month_end and week_sunday >= month_start:

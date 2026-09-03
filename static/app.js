@@ -1015,7 +1015,7 @@ function renderSectionBody(name, body) {
     // 「活动流」是同一种东西，不该长得不一样
     if (/(活动流|这一天做了什么|活动时间线)/.test(name)) return renderActivityFlow(body);
     // 待办和悬而未决是要「拿走去做」的，给方框标记和普通列表区分开
-    if (/(待办|悬而未决)/.test(name)) {
+    if (/(待办|未完成|悬而未决)/.test(name)) {
         return `<div class="todo">${renderMarkdownInline(body)}</div>`;
     }
     return renderMarkdownInline(body);
