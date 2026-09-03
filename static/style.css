@@ -622,18 +622,6 @@ pre.cmd {
     color: var(--ink-2);
 }
 
-.storage-notice {
-    margin-top: 20px;
-    padding: 13px 16px;
-    background: var(--surface);
-    border-radius: 9px;
-    box-shadow: var(--shadow-1);
-    font-size: 12.5px;
-    color: var(--ink-2);
-    line-height: 1.7;
-}
-
-.storage-notice b { color: var(--ink); font-family: var(--font-num); font-weight: 500; }
 
 
 /* 按需生成按钮 —— 周报月报只在点击时生成 */

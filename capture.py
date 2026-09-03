@@ -630,15 +630,25 @@ def analyze_hour(date_str: str, hour: int) -> bool:
     return False
 
 
-def pending_days(output_dir: Path, report_dir: Path, lookback_days: int = 7) -> list[str]:
-    """有截图却还没有日总结的日期，不含今天（还没过完）。"""
+def pending_days(
+    output_dir: Path, report_dir: Path, lookback_days: int = 7,
+    include_today: bool = False,
+) -> list[str]:
+    """有截图却还没有日总结的日期。
+
+    默认不含今天（还没过完）。但定时任务在 23:50 触发时「今天」已经
+    实质结束了 —— 不带 include_today 的话，当天的总结永远轮不到：
+    23:50 那次因为是今天而跳过，第二天那次才补上，等于永远晚一天。
+    """
     today = datetime.now().strftime("%Y-%m-%d")
     cutoff = datetime.now() - timedelta(days=lookback_days)
     out = []
     if not output_dir.exists():
         return out
     for date_dir in sorted(output_dir.iterdir()):
-        if not date_dir.is_dir() or date_dir.name == today:
+        if not date_dir.is_dir():
+            continue
+        if date_dir.name == today and not include_today:
             continue
         try:
             if datetime.strptime(date_dir.name, "%Y-%m-%d") < cutoff:
@@ -674,7 +684,7 @@ def summarize_day(date_str: str) -> bool:
     return False
 
 
-def run_daily_summary(output_dir: Path, report_dir: Path):
+def run_daily_summary(output_dir: Path, report_dir: Path, scheduled: bool = False):
     """补齐所有欠着的日总结。
 
     小时报告不再自动分析 —— 那是每小时一次模型调用，而绝大多数小时
@@ -685,10 +695,13 @@ def run_daily_summary(output_dir: Path, report_dir: Path):
     补齐而不是「只做昨天」：机器在定点时刻可能是关着的，
     只做昨天会留下永久空洞。
     """
-    todo = pending_days(output_dir, report_dir)
+    # 定时触发且已过 20 点：把今天也算进去 —— 那时候这一天该发生的
+    # 基本都发生完了。启动时的补齐调用不带这个，免得大清早给半天数据出总结。
+    include_today = scheduled and datetime.now().hour >= 20
+    todo = pending_days(output_dir, report_dir, include_today=include_today)
     if not todo:
         return
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 待生成日总结 {len(todo)} 天")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] 待生成日总结 {len(todo)} 天: {', '.join(todo)}")
     for date_str in todo:
         summarize_day(date_str)
 
@@ -852,7 +865,9 @@ def main():
     # 日总结每天一次。按钟点触发而不是「每隔 24 小时」：
     # 后者从进程启动计时，重启一次就漂移。
     daily_at = config["report"].get("daily_summary_at", "23:50")
-    schedule.every().day.at(daily_at).do(run_daily_summary, output_dir, report_dir)
+    schedule.every().day.at(daily_at).do(
+        run_daily_summary, output_dir, report_dir, True
+    )
 
     pace = (
         f"interval={interval}min" if mode == "interval"

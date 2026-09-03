@@ -30,7 +30,8 @@
 只支持 macOS —— 无障碍树和 Vision OCR 都是系统能力，换平台要重写这两块。
 
 ```bash
-git clone https://github.com/zxyjyh/gleaner.git
+# 仓库名仍是 captureScreen（产品叫拾遗，仓库没跟着改）
+git clone https://github.com/zxyjyh/captureScreen.git gleaner
 cd gleaner
 bash install.sh
 ```

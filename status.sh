@@ -21,11 +21,12 @@ fi
 TODAY=$(date +%Y-%m-%d)
 TODAY_DIR="$DIR/screenshots/$TODAY"
 if [ -d "$TODAY_DIR" ]; then
-    PNG_COUNT=$(ls "$TODAY_DIR"/*.png 2>/dev/null | wc -l | tr -d ' ')
-    LATEST=$(ls -t "$TODAY_DIR"/*.png 2>/dev/null | head -1)
+    # 新数据是 JPEG（省 95% 空间），历史数据是 PNG，两种都要数
+    PNG_COUNT=$(ls "$TODAY_DIR"/*.png "$TODAY_DIR"/*.jpg 2>/dev/null | wc -l | tr -d ' ')
+    LATEST=$(ls -t "$TODAY_DIR"/*.png "$TODAY_DIR"/*.jpg 2>/dev/null | head -1)
     if [ -n "$LATEST" ]; then
         # 副屏文件名带 -s2 后缀，直接换成冒号会显示成 10:27:24:s2
-        LATEST_TIME=$(basename "$LATEST" .png | sed 's/-s[0-9]*$//' | tr '-' ':')
+        LATEST_TIME=$(basename "${LATEST%.*}" | sed 's/-s[0-9]*$//' | tr '-' ':')
         echo "今日截图: ${PNG_COUNT} 张 (最新: ${LATEST_TIME})"
     fi
 else
@@ -35,7 +36,7 @@ fi
 # 历史统计
 TOTAL=0
 for d in "$DIR"/screenshots/*/; do
-    [ -d "$d" ] && TOTAL=$((TOTAL + $(ls "$d"/*.png 2>/dev/null | wc -l)))
+    [ -d "$d" ] && TOTAL=$((TOTAL + $(ls "$d"/*.png "$d"/*.jpg 2>/dev/null | wc -l)))
 done
 echo "累计截图: ${TOTAL} 张"
 

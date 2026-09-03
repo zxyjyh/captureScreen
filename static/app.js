@@ -698,15 +698,11 @@ async function loadStorage() {
                 `<td>${r.has_report ? fmtSize(r.reports) : "—"}</td></tr>`;
     }
     main += "</tbody></table>";
-    main += `<div class="storage-notice">图片占 <b>${imgPct.toFixed(1)}%</b>，文本占 <b>${(100 - imgPct).toFixed(1)}%</b>。` +
-            "每张图在删除前都已抽成文本 —— 删图后报告与检索照常，仅无法回看原始画面。</div>";
 
     let side = '<h4 style="font-size:14px;font-weight:600;margin-bottom:4px;">删除</h4>';
     side += '<p class="hint" id="st-picked">先在左边勾选日期。删除不可逆。</p>';
     side += '<button id="st-del-img" class="danger-soft">只删图片，保留文本</button>';
-    side += '<p class="hint">省下几乎全部空间。报告和检索照常可用，只是不能再翻原始画面。</p>';
     side += '<button id="st-del-all" class="danger">全部删除</button>';
-    side += '<p class="hint">截图、文本、报告、向量索引一起删。这些日期将不再可检索。</p>';
 
     if (d.backups.length) {
         side += '<hr><h4 style="font-size:14px;font-weight:600;margin:16px 0 4px;">备份目录</h4>';
