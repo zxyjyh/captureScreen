@@ -84,12 +84,9 @@ function renderTimeline(reports) {
     reports.forEach((r, i) => {
         const item = document.createElement("div");
         item.className = "tl-item" + (i === 0 ? " active" : "");
-        item.innerHTML = `
-            <div class="tl-time">${r.hour}:00 - ${r.hour}:59</div>
-            <div class="tl-app">${r.app || "加载中..."}</div>
-            <div class="tl-title">${r.title || ""}</div>
-            <div class="tl-duration">${r.minutes || ""}分钟</div>
-        `;
+        // 只留时段。应用名和时长在右边的报告里都有，
+        // 这一列的职责是「选哪个小时」，不是展示内容
+        item.innerHTML = `<div class="tl-time">${String(r.hour).padStart(2, "0")}:00</div>`;
         item.addEventListener("click", () => {
             container.querySelectorAll(".tl-item").forEach(el => el.classList.remove("active"));
             item.classList.add("active");
@@ -155,15 +152,6 @@ async function loadReportMeta(report, container) {
     report.highlights = parsed.highlights;
     report.improvements = parsed.improvements;
     report.suggestions = parsed.suggestions;
-
-    // Update timeline items with metadata
-    const items = container.querySelectorAll(".tl-item");
-    const idx = todayReports.indexOf(report);
-    if (idx >= 0 && items[idx]) {
-        items[idx].querySelector(".tl-app").textContent = report.app || "未知";
-        items[idx].querySelector(".tl-title").textContent = report.title || "";
-        items[idx].querySelector(".tl-duration").textContent = report.minutes ? `${report.minutes}分钟` : "";
-    }
 
     // Re-render allocation with real data
     const alloc = buildAllocation(todayReports.filter(r => r.app));

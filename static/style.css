@@ -259,7 +259,7 @@ nav { display: flex; flex-direction: column; gap: 6px; }
 
 .tl-item {
     position: relative;
-    padding: 14px 22px;
+    padding: 11px 22px;
     cursor: pointer;
     border-left: 2.5px solid transparent;
     transition: background .12s;
@@ -272,41 +272,23 @@ nav { display: flex; flex-direction: column; gap: 6px; }
     border-left-color: var(--accent);
 }
 
+/* 时段是这一列唯一的内容，给足字号；应用和时长在右边报告里都有 */
 .tl-time {
     font-family: var(--font-num);
     font-variant-numeric: tabular-nums;
-    font-size: 14px;
-    color: var(--ink);
-    margin-bottom: 6px;
+    font-size: 14.5px;
+    color: var(--ink-2);
 }
 
-.tl-item.active .tl-time { font-weight: 600; }
+.tl-item.active .tl-time { color: var(--accent); font-weight: 600; }
+.tl-item:hover .tl-time { color: var(--ink); }
 
 .tl-app {
+    margin-top: 5px;
     font-size: 12.5px;
     color: var(--ink-2);
     margin-bottom: 3px;
 }
-
-.tl-title {
-    font-size: 12px;
-    color: var(--ink-3);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.tl-duration {
-    display: inline-block;
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 5px;
-    background: var(--inset);
-    color: var(--ink-2);
-    margin-top: 6px;
-}
-
-.tl-item.active .tl-duration { background: var(--surface); }
 
 .tl-alloc {
     margin: 16px 22px;
