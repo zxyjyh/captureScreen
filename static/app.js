@@ -699,8 +699,9 @@ async function loadStorage() {
     }
     main += "</tbody></table>";
 
-    let side = '<h4 style="font-size:14px;font-weight:600;margin-bottom:4px;">删除</h4>';
-    side += '<p class="hint" id="st-picked">先在左边勾选日期。删除不可逆。</p>';
+    // 保留这个空元素：勾选之后由 sync() 填「已选 N 天 · X MB」——
+    // 那不是说明文字，是不可逆操作前必须看到的事实
+    let side = '<p class="hint" id="st-picked"></p>';
     side += '<button id="st-del-img" class="danger-soft">只删图片，保留文本</button>';
     side += '<button id="st-del-all" class="danger">全部删除</button>';
 
@@ -726,8 +727,8 @@ async function loadStorage() {
         const bytes = d.rows.filter(r => sel.includes(r.date))
                             .reduce((a, r) => a + r.images + r.text + r.reports, 0);
         document.getElementById("st-picked").innerHTML = sel.length
-            ? `已选 <b>${sel.length}</b> 天 · <b>${fmtSize(bytes)}</b>。删除不可逆。`
-            : "先在左边勾选日期。删除不可逆。";
+            ? `已选 <b>${sel.length}</b> 天 · <b>${fmtSize(bytes)}</b>`
+            : "";
     }
 
     document.getElementById("st-all").addEventListener("change", (e) => {
