@@ -348,32 +348,45 @@ nav { display: flex; flex-direction: column; gap: 6px; }
 #content-view h2:first-child,
 #content-view h1 + h2 { margin-top: 0; padding-top: 0; border-top: none; }
 
+/* h3 和 h4 在这些报告里其实是同一层 —— 模型有时写 ###，有时写
+   独占一行的 **加粗**，指的都是「小节内部的分组」。给同一套样式，
+   免得同一种东西因为模型的写法不同而长得不一样。 */
 #content-view h3 {
-    font-size: 14px;
+    font-size: 15px;
     color: var(--ink);
     font-weight: 600;
     letter-spacing: -.1px;
-    margin: 18px 0 8px;
+    margin: 22px 0 10px;
+    padding-left: 10px;
+    border-left: 3px solid var(--accent);
+    line-height: 1.4;
 }
 
 /* h4 是小节内部的分组（模型爱用「**项目与主题**」这种独占一行的加粗）。
    给它一点左边的色条，扫视时能看出这是一组的开头而不是普通粗体。 */
+/* 「**项目与主题**」这类分组标题。原来 13px 比正文的 13.5px 还小，
+   当然读不出是标题 —— 提到 15px，颜色到正文色，左侧色条加粗到 3px
+   并用强调色，扫视时一眼能断出组的边界。 */
 #content-view h4 {
-    font-size: 13px;
-    color: var(--ink-2);
+    font-size: 15px;
+    color: var(--ink);
     font-weight: 600;
-    margin: 16px 0 7px;
-    padding-left: 9px;
-    border-left: 2.5px solid var(--accent-b);
+    letter-spacing: -.1px;
+    margin: 22px 0 10px;
+    padding-left: 10px;
+    border-left: 3px solid var(--accent);
+    line-height: 1.4;
 }
 
+#content-view h3:first-child,
 #content-view h4:first-child { margin-top: 0; }
 
 #content-view ol { padding-left: 20px; margin-bottom: 12px; }
 #content-view ol li { margin-bottom: 10px; font-size: 13.5px; line-height: 1.75; }
 #content-view ol li::marker { color: var(--ink-3); font-family: var(--font-num); }
 #content-view ul li { line-height: 1.7; }
-#content-view p + h4 { margin-top: 18px; }
+#content-view p + h3,
+#content-view p + h4 { margin-top: 22px; }
 #content-view ul { padding-left: 18px; margin-bottom: 12px; }
 #content-view li { margin-bottom: 7px; font-size: 13.5px; }
 #content-view p { margin-bottom: 11px; font-size: 13.5px; }
@@ -757,6 +770,7 @@ pre.cmd {
 #content-view ul li::marker { color: var(--ink-3); }
 
 /* 组与组之间要能一眼断开 */
+#content-view h3 + ul,
 #content-view h4 + ul { margin-bottom: 18px; }
 #content-view ul:last-child { margin-bottom: 0; }
 
