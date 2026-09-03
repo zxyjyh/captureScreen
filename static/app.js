@@ -384,13 +384,20 @@ function renderBlocks(text) {
         if (para.length) { out.push(`<p>${para.join("<br>")}</p>`); para = []; }
     };
     const flushList = () => {
-        if (list) { out.push(`<${list.tag}>${list.items.join("")}</${list.tag}>`); list = null; }
+        if (list) {
+            flushSub(list);
+            out.push(`<${list.tag}>${list.items.join("")}</${list.tag}>`);
+            list = null;
+        }
     };
     const flush = () => { flushPara(); flushList(); };
 
     for (const raw of (text || "").split("\n")) {
         const line = raw.trim();
         if (!line) { flush(); continue; }
+        // 缩进决定层级。原来直接 trim，二级列表被压成一级，
+        // 「文件与路径」下面按项目分的那几组就全平掉了
+        const indent = raw.length - raw.replace(/^\s+/, "").length;
 
         let m;
         if ((m = line.match(/^(#{1,4})\s+(.+)$/))) {
@@ -403,12 +410,12 @@ function renderBlocks(text) {
             out.push(`<h4>${inline(m[1])}</h4>`);
         } else if ((m = line.match(/^[-*]\s+(.+)$/))) {
             flushPara();
-            if (!list || list.tag !== "ul") { flushList(); list = { tag: "ul", items: [] }; }
-            list.items.push(`<li>${inline(m[1])}</li>`);
+            if (!list || list.tag !== "ul") { flushList(); list = { tag: "ul", items: [], sub: null }; }
+            pushItem(list, indent, `<li>${inline(m[1])}</li>`);
         } else if ((m = line.match(/^\d+[.)]\s+(.+)$/))) {
             flushPara();
-            if (!list || list.tag !== "ol") { flushList(); list = { tag: "ol", items: [] }; }
-            list.items.push(`<li>${inline(m[1])}</li>`);
+            if (!list || list.tag !== "ol") { flushList(); list = { tag: "ol", items: [], sub: null }; }
+            pushItem(list, indent, `<li>${inline(m[1])}</li>`);
         } else {
             flushList();
             para.push(inline(line));
@@ -416,6 +423,26 @@ function renderBlocks(text) {
     }
     flush();
     return out.join("");
+}
+
+// 缩进 >= 2 的进子列表，挂在上一条下面
+function pushItem(list, indent, html) {
+    if (indent >= 2 && list.items.length) {
+        list.sub = list.sub || [];
+        list.sub.push(html);
+        return;
+    }
+    flushSub(list);
+    list.items.push(html);
+}
+
+function flushSub(list) {
+    if (list.sub && list.sub.length) {
+        const last = list.items.length - 1;
+        list.items[last] = list.items[last].replace(/<\/li>$/,
+            `<ul class="sub">${list.sub.join("")}</ul></li>`);
+        list.sub = null;
+    }
 }
 
 function inline(t) {
@@ -955,6 +982,7 @@ function renderSections(md) {
                 `<div class="alloc-pane${i ? " hidden" : ""}" data-dim="${i}">${renderAllocation(v)}</div>`).join("")}
         </div>`;
     }
+    cards.sort((a, b) => sectionRank(a[0]) - sectionRank(b[0]));
     for (const [name, body] of cards) {
         html += `<div class="ai-section"><h2>${name}</h2>${renderSectionBody(name, body)}</div>`;
     }
@@ -975,5 +1003,24 @@ function renderSectionBody(name, body) {
     // 带时间的小节走时间线：日总结的「这一天做了什么」和小时报告的
     // 「活动流」是同一种东西，不该长得不一样
     if (/(活动流|这一天做了什么|活动时间线)/.test(name)) return renderActivityFlow(body);
+    // 待办和悬而未决是要「拿走去做」的，给方框标记和普通列表区分开
+    if (/(待办|悬而未决)/.test(name)) {
+        return `<div class="todo">${renderMarkdownInline(body)}</div>`;
+    }
     return renderMarkdownInline(body);
+}
+
+// 小节的展示顺序。待办排在最前 —— 一天的总结里，
+// 「明天要做什么」比「今天做了什么」更需要被先看到。
+// 待办排最前 —— 一份总结里「接下来要做什么」比「已经做了什么」更需要先看到。
+// 周报月报用的是「未完成」和「主线」，一并列进来，否则它们会被排到最后。
+const SECTION_ORDER = [
+    "待办", "未完成", "悬而未决",
+    "这一天做了什么", "主线", "活动流",
+    "关键事实", "阅读",
+];
+
+function sectionRank(name) {
+    const i = SECTION_ORDER.findIndex(s => name.includes(s));
+    return i < 0 ? SECTION_ORDER.length : i;
 }

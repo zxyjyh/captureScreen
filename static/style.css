@@ -732,3 +732,55 @@ pre.cmd {
 
 .alloc-tab:hover { background: var(--line); }
 .alloc-tab.active { background: var(--accent); color: #fff; font-weight: 500; }
+
+/* 待办 / 悬而未决 —— 这两节是要「拿走去做」的，
+   用方框标记和普通信息列表区分开。不做成真复选框：
+   勾选状态需要存在哪里，而这个工具的前提是不靠人手工维护状态。 */
+.todo ul { list-style: none; padding-left: 0; }
+
+.todo li {
+    position: relative;
+    padding-left: 24px;
+    margin-bottom: 9px;
+    line-height: 1.7;
+}
+
+.todo li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 5px;
+    width: 13px;
+    height: 13px;
+    border: 1.5px solid var(--accent-b);
+    border-radius: 3px;
+}
+
+.todo p { color: var(--ink-3); }
+
+/* 二级列表：比一级小半号、颜色退一档，一眼能分出从属 */
+#content-view ul.sub {
+    margin: 6px 0 2px;
+    padding-left: 16px;
+}
+
+#content-view ul.sub li {
+    font-size: 12.5px;
+    color: var(--ink-2);
+    margin-bottom: 4px;
+}
+
+/* 关键事实：每条都是一句独立的事实，长的会占两三行。
+   默认的圆点列表让相邻两条糊在一起 —— 加大行距、去掉圆点、
+   用悬挂缩进让每条自成一块。 */
+#content-view ul li {
+    line-height: 1.75;
+    margin-bottom: 10px;
+    padding-left: 2px;
+}
+
+#content-view ul li::marker { color: var(--ink-3); }
+
+/* 组与组之间要能一眼断开 */
+#content-view h4 + ul { margin-bottom: 18px; }
+#content-view ul:last-child { margin-bottom: 0; }
