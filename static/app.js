@@ -412,7 +412,7 @@ function renderBlocks(text) {
             // 「**1｜标题** — 一大段正文」：周报「主线」的写法。
             // 不拆开的话标题就淹在正文里，整节看不出有几条
             flush();
-            out.push(`<h4>${inline(m[1])}</h4><p>${inline(m[2])}</p>`);
+            out.push(`<h4>${inline(stripIndex(m[1]))}</h4><p>${inline(m[2])}</p>`);
         } else if ((m = line.match(/^[-*]\s+(.+)$/))) {
             flushPara();
             if (!list || list.tag !== "ul") { flushList(); list = { tag: "ul", items: [], sub: null }; }
@@ -448,6 +448,12 @@ function flushSub(list) {
             `<ul class="sub">${list.sub.join("")}</ul></li>`);
         list.sub = null;
     }
+}
+
+// 去掉模型自己加的序号前缀（1｜、2. 、三、）。
+// 条目已经是分开的块，前面再顶个数字是多余的噪声。
+function stripIndex(t) {
+    return (t || "").replace(/^\s*(?:\d+|[一二三四五六七八九十]+)\s*[｜|、.．)）:：\-–—]\s*/, "");
 }
 
 function inline(t) {
