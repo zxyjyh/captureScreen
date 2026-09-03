@@ -86,7 +86,9 @@ function renderTimeline(reports) {
         item.className = "tl-item" + (i === 0 ? " active" : "");
         // 只留时段。应用名和时长在右边的报告里都有，
         // 这一列的职责是「选哪个小时」，不是展示内容
-        item.innerHTML = `<div class="tl-time">${String(r.hour).padStart(2, "0")}:00</div>`;
+        const hh = String(r.hour).padStart(2, "0");
+        const next = String((Number(r.hour) + 1) % 24).padStart(2, "0");
+        item.innerHTML = `<div class="tl-time">${hh}:00 ～ ${next}:00</div>`;
         item.addEventListener("click", () => {
             container.querySelectorAll(".tl-item").forEach(el => el.classList.remove("active"));
             item.classList.add("active");
